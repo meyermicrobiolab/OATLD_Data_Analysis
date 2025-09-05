@@ -4221,7 +4221,7 @@ ps_f2_HH_DD_pruned
 sample_data(ps_f2_HH_DD_pruned)$Condition<-factor(sample_data(ps_f2_HH_DD_pruned)$Condition,levels=c("HH","DD"))
 head(sample_data(ps_f2_HH_DD_pruned)$Condition, 10)
 
-# DESEQ2 analysis on Dcyl Samples
+# DESEQ2 analysis
 dds = phyloseq_to_deseq2(ps_f2_HH_DD_pruned, ~ Condition)
 dds
 #filter rows with very few counts

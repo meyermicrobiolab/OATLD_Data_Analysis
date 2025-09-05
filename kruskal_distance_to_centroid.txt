@@ -1,0 +1,6 @@
+
+	Kruskal-Wallis rank sum test
+
+data:  distance by Condition
+Kruskal-Wallis chi-squared = 6.6305, df = 2, p-value = 0.03633
+

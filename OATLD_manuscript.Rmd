@@ -1,0 +1,236 @@
+---
+title: "OATLD manuscript figures"
+author: "J. Meyer"
+date: "2025-09-05"
+output: html_document
+---
+
+
+```{r}
+#Load the libraries
+library(phyloseq)
+library(CoDaSeq)
+library(zCompositions)
+library(cowplot)
+library(ggplot2)
+library(vegan)
+library(tidyverse)
+library(reshape2)
+library(ggpubr)
+library(FSA)
+writeLines(capture.output(sessionInfo()), "sessionInfo.txt")
+```
+
+
+Beta diversity figures: PCA and dispersion
+
+
+```{r}
+otu <- read.table("silva_nochloronomito_otu_table_ps_f2.txt",sep="\t",header=TRUE, row.names=1)
+taxon <- read.table("silva_nochloronomito_taxa_table_ps_f2.txt",sep="\t",header=TRUE,row.names=1)
+samples<-read.table("metadata_noblanks.txt",sep="\t",header=T,row.names=1)
+
+OTU = otu_table(otu, taxa_are_rows=FALSE)
+taxon<-as.matrix(taxon)
+TAX = tax_table(taxon)
+sampledata = sample_data(samples)
+ps_f2 <- phyloseq(otu_table(otu, taxa_are_rows=FALSE), 
+               sample_data(samples), 
+               tax_table(taxon))
+ps_f2 # 1202 taxa and 77 samples
+
+### Principal Components Analysis
+# First, replace 0 values with an estimate (because normalization is taking log, can't have 0)
+# Also transposing here, need samples as rows
+d.czm <- cmultRepl(t(otu), method="CZM", label=0, z.warning = 0.999)
+# Perform the center-log-ratio (CLR) transformation 
+d.clr <- codaSeq.clr(d.czm)
+# transpose matrix of CLR transformed data for ordination and dendrogram
+E.clr <- t(d.clr)
+# plot compositional PCA biplot (perform a singular value decomposition)
+d.pcx <- prcomp(E.clr)
+# calculate percent variance explained for the axis labels
+pc1 <- round(d.pcx$sdev[1]^2/sum(d.pcx$sdev^2),2)
+pc2 <- round(d.pcx$sdev[2]^2/sum(d.pcx$sdev^2),2)
+df_out <- as.data.frame(d.pcx$x)
+dist.clr <- dist(E.clr)
+
+
+# Set asthetics for plot
+palette2<- c("Diseased" = "#E69F00", "Unaffected" = "#56B4E9", "Healthy" = "#0072B2")
+theme_set(theme_bw()+theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank()))
+sample_data(ps_f2)$Condition<-factor(sample_data(ps_f2)$Condition,levels=c("Healthy", "Unaffected", "Diseased"))
+
+p1<-ggplot(df_out,aes(x=PC1,y=PC2,fill=sample_data(ps_f2)$Condition, shape=sample_data(ps_f2)$Site))
+p1<-p1+geom_point( size=3.5)+
+  theme(axis.title = element_text(size=14))+
+  theme(axis.text=element_text(size=12))+
+  theme(legend.title = element_text(size=14))+
+  theme(legend.text = element_text(size=12))+
+  theme(legend.position = "right")+
+  theme(legend.title = element_blank()) +
+  theme(legend.key.width = unit(1.0,  unit = "cm")) +
+  guides(fill = guide_legend(byrow = TRUE)) 
+p1<- p1+ labs(x=xlab, y=ylab, fill="Condition") + coord_fixed()+
+  labs(fill = "Condition", shape="Site")+
+  scale_shape_manual(values = c(21, 22, 23, 24, 25)) +
+  scale_fill_manual(values = palette2) +
+  theme_minimal() +
+   labs(x = "Principal Component 1: 30%", y = "Principal Component 2: 5%") +
+  theme(axis.text.x=element_text(colour="black"))+
+  theme(axis.text.y=element_text(colour="black")) +
+  guides(fill = guide_legend(override.aes = list(shape = 21)))
+p1
+
+pdf("PCA.pdf",bg ="white")
+p1
+dev.off()
+```
+
+
+
+```{r}
+### Beta Diversity Dispersion - Condition
+#calculate multivariate dispersions based on Condition
+mod <-betadisper(dist.clr, sampledata$Condition)
+anova(mod)
+plot(mod)
+## Compute mean distance to centroid per group
+#this just prints values on the console
+tapply(mod$distances, sampledata$Condition, mean)
+## Same, but variance instead
+tapply(mod$distances, sampledata$Condition, var)
+
+#Get the distances to centroid from the model
+mod$distances
+dis <- mod$distances
+dis.melt <- melt(dis)
+#move rownames to columns so we can merge the dispersion values and metadata
+dis.melt$Sample <- rownames(dis.melt)
+samples$Sample <- rownames(samples)
+#merge metadata and dispersion 
+dis.condition <- merge(samples, dis.melt)
+#rename column
+colnames(dis.condition)[4] <- "distance"
+
+shapiro.test(dis.condition$distance) #Not normally distributed, use kruskal test
+distance.test<- kruskal.test(distance ~ Condition, data=dis.condition)
+print(distance.test)
+capture.output(distance.test,file="kruskal_distance_to_centroid.txt")
+
+#Post Hoc Test
+dunnTest(distance ~ Condition,
+  data = dis.condition,
+  method = "bonferroni"
+)
+
+# Set asthetics for plot
+palette2<- c("Diseased" = "#E69F00", "Unaffected" = "#56B4E9", "Healthy" = "#0072B2")
+dis.condition$Condition<-factor(dis.condition$Condition, levels=c("Healthy", "Unaffected", "Diseased"))
+theme_set(theme_bw()+theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank()))
+
+p2<-ggplot(dis.condition, aes(x=Condition, y=distance)) +
+  geom_boxplot() +
+  geom_point(position=position_jitter(width=.1, height=0),aes(fill=Condition),size=4,pch=21) +
+  scale_fill_manual(values = palette2) +
+  ylab("Distance to Centroid")+
+  theme(axis.text.x = element_text(colour="black"))+
+  theme(axis.text.y = element_text(colour="black"))+
+  theme(axis.text.x = element_text(size = 12))+
+  theme(axis.text.y = element_text(size = 12))+
+  theme(axis.title.x = element_blank())+
+  theme(axis.title.y = element_text(size = 16))+
+  theme(strip.text.x=element_text(size=16, face="bold"))+
+  theme(legend.position = "none") +
+  stat_compare_means(
+    comparisons = list(c("Diseased", "Healthy")),
+    method = "t.test",
+    label = "p.signif")
+p2
+
+pdf("Dispersion.pdf",bg ="white")
+p2
+dev.off()
+```
+
+
+```{r}
+# bring together PCA and Dispersion plots
+
+pdf("BetaDiversity.pdf",width=16, height=10, bg ="white")
+plot_grid(p1,p2,labels=c("A","B"))
+dev.off()
+
+
+
+```
+
+
+
+
+```{r}
+# CLAM test
+otu <- read.table("silva_nochloronomito_otu_table_ps_f2.txt",sep="\t",header=TRUE, row.names=1)
+taxon <- read.table("silva_nochloronomito_taxa_table_ps_f2.txt",sep="\t",header=TRUE,row.names=1)
+samples<-read.table("metadata_noblanks.txt",sep="\t",header=T,row.names=1)
+
+OTU = otu_table(otu, taxa_are_rows=FALSE)
+taxon<-as.matrix(taxon)
+TAX = tax_table(taxon)
+sampledata = sample_data(samples)
+ps_f2 <- phyloseq(otu_table(otu, taxa_are_rows=FALSE), 
+               sample_data(samples), 
+               tax_table(taxon))
+ps_f2 # 1202 taxa and 77 samples
+
+ps_f2_HH_DD<- subset_samples(ps_f2, Condition == "Healthy" | Condition == "Diseased")
+ps_f2_HH_DD #1202 taxa and 52 samples
+
+ps_f2_HH_DD_pruned <- prune_taxa(taxa_sums(ps_f2_HH_DD) > 0, ps_f2_HH_DD)
+ps_f2_HH_DD_pruned #1160 taxa and 52 samples
+
+otu_table <- as.data.frame(otu_table(ps_f2_HH_DD_pruned))
+sample_data <- as.data.frame(sample_data(ps_f2_HH_DD_pruned))
+# Assuming 'group' is a column in your sample data
+env_var <- sample_data$Condition
+clam_results_ps <- vegan::clamtest(otu_table, env_var, alpha = 0.05, specialization = 2/3)
+print(clam_results_ps)
+summary(clam_results_ps)
+
+colors <- c("Generalist" = "gray",
+            "Specialist_Healthy" = "#0072B2", 
+            "Specialist_Diseased" = "#E69F00", 
+            "Too_rare" = "black")
+
+labels<- c("Generalist (n=298)", "Specialist_Healthy (n=548)", "Specialist_Diseased (n=160)", "Too_rare (n=154)")
+
+pdf("CLAM_plot.pdf", width = 8.25, height = 6,bg ="white")
+plot(clam_results_ps, xlab = "Diseased samples (ASV abundance + 1)", ylab = "Healthy samples (ASV abundance + 1)", 
+     pch = c(1,16,16,1), col=colors, col.lines = c("black", "black", "black"), 
+     lty = c(2,2,2), cex=1.5, position = "topleft")
+legend("topleft",legend = labels, pch = c(1,16,16,1), col=colors)
+dev.off()
+```
+
+
+```{r}
+otu <- read.table("silva_nochloronomito_otu_table_ps_f2.txt",sep="\t",header=TRUE, row.names=1)
+taxon <- read.table("silva_nochloronomito_taxa_table_ps_f2.txt",sep="\t",header=TRUE,row.names=1)
+samples<-read.table("metadata_noblanks.txt",sep="\t",header=T,row.names=1)
+
+OTU = otu_table(otu, taxa_are_rows=FALSE)
+taxon<-as.matrix(taxon)
+TAX = tax_table(taxon)
+sampledata = sample_data(samples)
+ps_f2 <- phyloseq(otu_table(otu, taxa_are_rows=FALSE), 
+               sample_data(samples), 
+               tax_table(taxon))
+ps_f2 # 1202 taxa and 77 samples
+ps_f2_ra<- transform_sample_counts(ps_f2, function(OTU) OTU/sum(OTU))
+
+###Pull out 5 ASVs from Deseq results file
+
+
+
+```
+
