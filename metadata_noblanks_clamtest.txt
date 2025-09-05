@@ -1,0 +1,78 @@
+Sample Name	Site	ConDiseasedition
+FLP1	Carysfort South	Healthy
+FLP2	Carysfort South	Healthy
+FLP3	Carysfort South	Healthy
+FLP4	Carysfort South	Unaffected
+FLP5	Carysfort South	Diseased
+FLP7	Carysfort South	Unaffected
+FLP8	Carysfort South	Diseased
+FLP11	Carysfort South	Unaffected
+FLP12	Carysfort South	Diseased
+FLP14	Carysfort South	Diseased
+FLP16	Carysfort South	Unaffected
+FLP31	Carysfort South	Healthy
+FLP32	Carysfort South	Unaffected
+FLP33	Carysfort South	Diseased
+FLP35	Carysfort South	Healthy
+FLP36	Carysfort South	Healthy
+FLP37	Carysfort South	Healthy
+FLP38	Carysfort South	Healthy
+FLP39	Carysfort South	Healthy
+FLP40	Carysfort South	Healthy
+FLP21	KLDR	Healthy
+FLP22	KLDR	Unaffected
+FLP23	KLDR	Diseased
+FLP25	KLDR	Unaffected
+FLP26	KLDR	Diseased
+FLP28	KLDR	Diseased
+FLP30	KLDR	Diseased
+FLP41	Grecian	Unaffected
+FLP42	Grecian	Diseased
+FLP44	Grecian	Unaffected
+FLP45	Grecian	Diseased
+FLP47	KLDR	Unaffected
+FLP48	KLDR	Diseased
+FLP50	Grecian	Healthy
+FLP51	KLDR	Unaffected
+FLP53	KLDR	Healthy
+FLP54	KLDR	Healthy
+FLP55	KLDR	Unaffected
+FLP56	KLDR	Diseased
+FLP61	KLDR	Healthy
+FLP62	KLDR	Unaffected
+FLP63	Grecian	Healthy
+FLP71	Grecian	Healthy
+FLP72	Grecian	Healthy
+FLP73	Grecian	Unaffected
+FLP74	Grecian	Diseased
+FLP78	Grecian	Unaffected
+FLP79	Grecian	Diseased
+FLP58	Looe Key	Healthy
+FLP59	Looe Key	Healthy
+FLP60	Looe Key	Healthy
+FLP65	Looe Key	Healthy
+FLP66	Looe Key	Unaffected
+FLP67	Looe Key	Diseased
+FLP81	Looe Key	Unaffected
+FLP82	Looe Key	Diseased
+FLP84	Looe Key	Healthy
+FLP85	Looe Key	Healthy
+FLP86	Looe Key	Unaffected
+FLP87	Looe Key	Diseased
+FLP89	Looe Key	Unaffected
+FLP90	Looe Key	Diseased
+FLP92	Looe Key	Healthy
+FLP93	Looe Key	Healthy
+FLP94	Looe Key	Healthy
+FLP95	Looe Key	Unaffected
+FLP96	Looe Key	Diseased
+FLP99	Looe Key	Healthy
+FLP101	Looe Key	Unaffected
+FLP102	Looe Key	Diseased
+FLP104	Looe Key	Unaffected
+FLP105	Looe Key	Diseased
+FLP107	Looe Key	Unaffected
+FLP110	Looe Key	Unaffected
+FLP111	Looe Key	Diseased
+FLP113	Looe Key	Unaffected
+FLP114	Looe Key	Diseased

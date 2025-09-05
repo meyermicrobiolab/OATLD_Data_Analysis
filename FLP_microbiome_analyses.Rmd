@@ -6,11 +6,10 @@ output: html_notebook
 The purpose of this project is to look at ASVs that are elevated in OATLD-afflicted corals.
 
 ```{r}
-#Load the libraries - NEEDS TO BE CLEANED UP
+#Load the libraries
 library(phyloseq)
 library(metagMisc)
 library(nationalparkcolors)
-library(phyloseq)
 library(microbiome)
 library(CoDaSeq)
 library(zCompositions)
@@ -3873,11 +3872,39 @@ dev.off()
 
 #CLAMtest
 
+
+# example from package
+data(mite)
+data(mite.env)
+sol <- with(mite.env, clamtest(mite, Shrub=="None", alpha=0.005))
+summary(sol)
+head(sol)
+plot(sol)
+
 ```{r}
 
 ###############################################
 #CLAM Test PS
 ###############################################
+otu <- read.table("silva_nochloronomito_otu_table_ps_f2.txt",sep="\t",header=TRUE, row.names=1)
+taxon <- read.table("silva_nochloronomito_taxa_table_ps_f2.txt",sep="\t",header=TRUE,row.names=1)
+samples<-read.table("metadata_noblanks.txt",sep="\t",header=T,row.names=1)
+
+OTU = otu_table(otu, taxa_are_rows=FALSE)
+taxon<-as.matrix(taxon)
+TAX = tax_table(taxon)
+sampledata = sample_data(samples)
+ps_f2 <- phyloseq(otu_table(otu, taxa_are_rows=FALSE), 
+               sample_data(samples), 
+               tax_table(taxon))
+ps_f2 # 1202 taxa and 77 samples
+
+ps_f2_HH_DD<- subset_samples(ps_f2, Condition == "H" | Condition == "D")
+ps_f2_HH_DD #1202 taxa and 52 samples
+
+ps_f2_HH_DD_pruned <- prune_taxa(taxa_sums(ps_f2_HH_DD) > 0, ps_f2_HH_DD)
+ps_f2_HH_DD_pruned #1160 taxa and 52 samples
+
 otu_table <- as.data.frame(otu_table(ps_f2_HH_DD_pruned))
 sample_data <- as.data.frame(sample_data(ps_f2_HH_DD_pruned))
 # Assuming 'group' is a column in your sample data
@@ -3894,33 +3921,32 @@ clam_ps_w_tax<- merge(clam_results_ps, tax_table, by = "Species")
 ###How many of each group?
 #Subset by Generalists
 clam_ps_w_tax_gen<- clam_ps_w_tax[clam_ps_w_tax$Classes=="Generalist",]
-nrow(clam_ps_w_tax_gen)
+nrow(clam_ps_w_tax_gen) #298
 
 #Subset by Healthy Specialists
-clam_ps_w_tax_hh<- clam_ps_w_tax[clam_ps_w_tax$Classes=="Specialist_HH",]
-nrow(clam_ps_w_tax_hh)
+clam_ps_w_tax_hh<- clam_ps_w_tax[clam_ps_w_tax$Classes=="Specialist_H",]
+nrow(clam_ps_w_tax_hh) #548
 
 #Subset by Disease Specialists
-clam_ps_w_tax_dd<- clam_ps_w_tax[clam_ps_w_tax$Classes=="Specialist_DD",]
-nrow(clam_ps_w_tax_dd)
+clam_ps_w_tax_dd<- clam_ps_w_tax[clam_ps_w_tax$Classes=="Specialist_D",]
+nrow(clam_ps_w_tax_dd) #160
 
 #Subset by Too Rare
 clam_ps_w_tax_rare<- clam_ps_w_tax[clam_ps_w_tax$Classes=="Too_rare",]
-nrow(clam_ps_w_tax_rare)
+nrow(clam_ps_w_tax_rare) #154
 
 print(clam_results_ps)
-
 summary(clam_results_ps)
 
-c("DD" = "#d1495b", "HD" = "#edae49", "HH" = "#00798c")
+c("D" = "#d1495b", "U" = "#edae49", "H" = "#00798c")
 
 
 colors <- c("Generalist" = "gray",
-            "Specialist_HH" = "#00798c", 
-            "Specialist_DD" = "#d1495b", 
-            "Too_Rare" = "black")
+            "Specialist_H" = "#00798c", 
+            "Specialist_D" = "#d1495b", 
+            "Too_rare" = "black")
 
-labels<- c("Generalist", "Specialist Healthy", "Specialist Diseased", "Too Rare")
+labels<- c("Generalist", "Healthy Specialist", "Disease Specialist", "Too Rare")
 
 #sig_dif_hh_dd$ASV
 
@@ -3983,8 +4009,10 @@ y_19<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACTGGGGGAGCGAGCGTTGTT
 
 
 ```
+
+
 ```{r}
-pdf("CLAM_plot.pdf", width = 8.25, height = 6)
+pdf("CLAM_plot_withtaxa.pdf", width = 8.25, height = 6)
 plot(clam_results_ps, xlab = "DD (Abundance + 1)", ylab = "HH (Abundance + 1)", 
      pch = c(1,16,16,1), col=colors, col.lines = c("black", "black", "black"), 
      lty = c(2,2,2), cex=1.5, position = "topleft")
@@ -4010,6 +4038,56 @@ text(x=x_18,y=y_18, labels = "Rubritalea", pos=2)
 text(x=x_19,y=y_19, labels = "Micavibrionaceae", pos=3)
 dev.off()
 ```
+
+Repeat clamtest with altered condition names; Plot without taxon labels
+
+```{r}
+otu <- read.table("silva_nochloronomito_otu_table_ps_f2.txt",sep="\t",header=TRUE, row.names=1)
+taxon <- read.table("silva_nochloronomito_taxa_table_ps_f2.txt",sep="\t",header=TRUE,row.names=1)
+samples<-read.table("metadata_noblanks_clamtest.txt",sep="\t",header=T,row.names=1)
+
+OTU = otu_table(otu, taxa_are_rows=FALSE)
+taxon<-as.matrix(taxon)
+TAX = tax_table(taxon)
+sampledata = sample_data(samples)
+ps_f2 <- phyloseq(otu_table(otu, taxa_are_rows=FALSE), 
+               sample_data(samples), 
+               tax_table(taxon))
+ps_f2 # 1202 taxa and 77 samples
+
+ps_f2_HH_DD<- subset_samples(ps_f2, Condition == "Healthy" | Condition == "Diseased")
+ps_f2_HH_DD #1202 taxa and 52 samples
+
+ps_f2_HH_DD_pruned <- prune_taxa(taxa_sums(ps_f2_HH_DD) > 0, ps_f2_HH_DD)
+ps_f2_HH_DD_pruned #1160 taxa and 52 samples
+
+otu_table <- as.data.frame(otu_table(ps_f2_HH_DD_pruned))
+sample_data <- as.data.frame(sample_data(ps_f2_HH_DD_pruned))
+# Assuming 'group' is a column in your sample data
+env_var <- sample_data$Condition
+clam_results_ps <- vegan::clamtest(otu_table, env_var, alpha = 0.05, specialization = 2/3)
+print(clam_results_ps)
+summary(clam_results_ps)
+
+
+c("D" = "#d1495b", "U" = "#edae49", "H" = "#00798c")
+
+
+colors <- c("Generalist" = "gray",
+            "Specialist_H" = "#00798c", 
+            "Specialist_D" = "#d1495b", 
+            "Too_rare" = "black")
+
+labels<- c("Generalist", "Healthy Specialist", "Disease Specialist", "Too Rare")
+
+pdf("CLAM_plot_notaxonlabels.pdf", width = 8.25, height = 6)
+plot(clam_results_ps, xlab = "Diseased samples (ASV abundance + 1)", ylab = "Healthy samples (ASV abundance + 1)", 
+     pch = c(1,16,16,1), col=colors, col.lines = c("black", "black", "black"), 
+     lty = c(2,2,2), cex=1.5, position = "topleft")
+legend("topleft",legend = labels, pch = c(1,16,16,1), col=colors)
+dev.off()
+```
+
 
 For the rest of the OATLD group, we need to get the relative abundance of each of the groups for each sample
 
