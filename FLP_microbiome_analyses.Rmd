@@ -1,0 +1,4204 @@
+---
+title: "FLP Data Analysis"
+output: html_notebook
+---
+
+The purpose of this project is to look at ASVs that are elevated in FLP-afflicted corals.
+
+```{r}
+#Load the libraries
+library(phyloseq)
+library(metagMisc)
+library(nationalparkcolors)
+library(phyloseq)
+library(microbiome)
+library(CoDaSeq)
+library(zCompositions)
+library(cowplot)
+library(googleway)
+library(ggplot2)
+library(ggrepel)
+library(ggspatial)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(vegan)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+library(RColorBrewer)
+library(corncob)
+library(DESeq2)
+library(Biostrings)
+library(seqateurs)
+library(DECIPHER)
+library(phangorn)
+library(seqinr)
+library(ape)
+library(ggtree)
+library(purrr)
+library(digest)
+library(decontam)
+
+```
+
+```{r}
+#Create the phyloseq object
+otu <- read.table("silva_nochloronomito_otu_table.txt",sep="\t",header=TRUE, row.names=1)
+taxon <- read.table("silva_nochloronomito_taxa_table.txt",sep="\t",header=TRUE,row.names=1)
+samples<-read.table("metadata.txt",sep="\t",header=T,row.names=1)
+
+OTU = otu_table(otu, taxa_are_rows=FALSE)
+taxon<-as.matrix(taxon)
+TAX = tax_table(taxon)
+sampledata = sample_data(samples)
+ps <- phyloseq(otu_table(otu, taxa_are_rows=FALSE), 
+               sample_data(samples), 
+               tax_table(taxon))
+ps
+summarize_phyloseq(ps)
+
+read_counts <- rowSums(otu_table(ps))
+View(read_counts)
+read_counts<- as.data.frame(read_counts)
+```
+
+```{r}
+#Get relative abundance
+ps_ra<- transform_sample_counts(ps, function(OTU) OTU/sum(OTU))
+```
+
+Filter the dataset
+
+```{r}
+#filter based on prevalence and max relative abundance
+#Prevalence of a given ASV
+prevdf = apply(X = otu_table(ps),
+               MARGIN = ifelse(taxa_are_rows(ps), yes = 1, no = 2),
+               FUN = function(x){sum(x > 0)})
+#maximum relative abundance of each ASV
+relabun = apply(otu_table(ps_ra), 
+                MARGIN = ifelse(taxa_are_rows(ps_ra), yes = 1, no = 2),
+                max)
+
+#create prev and relabun data table w/ taxonomy
+prevdf = data.frame(Prevalence = prevdf,
+                    MaxRelAbundance = relabun,
+                    tax_table(ps))
+
+
+# Execute rel abun and prev filter, using `prune_taxa()` function
+# Define abundance and prevelence threshold for taxa 
+# must be >= 0.1% in at least 1 sample, and be in 3 or more samples
+relAbundanceThreshold <- 0.001
+prevalenceThreshold <- 3
+
+keepTaxa <- rownames(prevdf)[(prevdf$MaxRelAbundance >= relAbundanceThreshold &
+                                prevdf$Prevalence >= prevalenceThreshold)]
+
+ps_f1 <- prune_taxa(keepTaxa, ps) #ps filt obj
+
+#Write out filtered Dataset Table
+otu_ps_f1 = as(otu_table(ps_f1), "matrix")
+taxon_ps_f1 = as(tax_table(ps_f1), "matrix")
+write.table(otu_ps_f1,"silva_nochloronomito_otu_table_ps_f1.txt",sep="\t",col.names=NA)
+write.table(taxon_ps_f1,"silva_nochloronomito_taxa_table_ps_f1.txt",sep="\t",col.names=NA)
+
+
+```
+
+```{r}
+#Beta Diversity Analyses
+# First, replace 0 values with an estimate (because normalization is taking log, can't have 0)
+# Also transposing here, need samples as rows
+d.czm <- cmultRepl(t(otu_ps_f1), method="CZM", label=0, z.warning = 0.999)
+# Perform the center-log-ratio (CLR) transformation 
+d.clr <- codaSeq.clr(d.czm)
+# transpose matrix of CLR transformed data for ordination and dendrogram
+E.clr <- t(d.clr)
+# plot compositional PCA biplot (perform a singular value decomposition)
+d.pcx <- prcomp(E.clr)
+# calculate percent variance explained for the axis labels
+pc1 <- round(d.pcx$sdev[1]^2/sum(d.pcx$sdev^2),2)
+pc2 <- round(d.pcx$sdev[2]^2/sum(d.pcx$sdev^2),2)
+xlab <- paste("PC1: ", pc1, sep="")
+ylab <- paste("PC2: ", pc2, sep="")
+#biplot(d.pcx, cex=c(0.6,0.4), var.axes=F,scale=1, xlab=xlab, ylab=ylab)
+summary(d.pcx)
+str(d.pcx)
+screeplot(d.pcx)
+
+# replot PCA with ggplot2 (showing samples only)
+df_out <- as.data.frame(d.pcx$x)
+
+```
+
+```{r}
+#Set colors for palette
+palette1<-c("blank"= "#26547c", "DD"= "#ef476f", "HD" ="#ffd166", "HH" = "#06d6a0")
+
+#Plot Beta diversity PCA
+pdf("PCA_Condition.pdf",bg = "white",width=8.5)
+p<-ggplot(df_out,aes(x=PC1,y=PC2,fill=samples$Condition, shape=samples$Site))
+p<-p+geom_point( size=3.5)+
+  theme(axis.title = element_text(size=14))+
+  theme(axis.text=element_text(size=12))+
+  theme(legend.title = element_text(size=14))+
+  theme(legend.text = element_text(size=12))+
+  theme(legend.position = "right")+
+  theme(legend.title = element_blank()) +
+  theme(legend.key.width = unit(1.0,  unit = "cm")) +
+  guides(fill = guide_legend(byrow = TRUE)) 
+p<- p+ labs(x=xlab, y=ylab, fill="Condition") + coord_fixed()+
+  labs(fill = "Condition", shape="Site")+
+  theme(axis.text.x=element_text(colour="black"))+
+  theme(axis.text.y=element_text(colour="black"))+
+  scale_shape_manual(values = c(21, 22, 23, 24, 25)) +
+  scale_fill_manual(values = palette1) +
+  theme_minimal()
+p
+dev.off()
+```
+
+First, remove sequences from the blanks using the decontamination package.
+
+```{r}
+#What Sequences/ASVs Are Actually In the Blanks?
+ps_blanks<- subset_samples(ps, Condition =="blank")
+ps_blanks_pruned <- prune_taxa(taxa_sums(ps_blanks) > 0, ps_blanks)
+
+ps_blanks_pruned
+View(ps_blanks_pruned@tax_table)
+write.csv(ps_blanks_pruned@tax_table, "ASVs_in_blanks.csv")
+
+#Visualize library size
+df <- as.data.frame(sample_data(ps)) # Put sample_data into a ggplot-friendly data.frame
+df$LibrarySize <- sample_sums(ps)
+df <- df[order(df$LibrarySize),]
+df$Index <- seq(nrow(df))
+ggplot(data=df, aes(x=Index, y=LibrarySize, color=Condition)) + geom_point()
+
+sample_data(ps)$is.neg <- sample_data(ps)$Condition == "blank"
+contamdf.prev <- isContaminant(ps, method="prevalence", neg="is.neg")
+table(contamdf.prev$contaminant)
+head(which(contamdf.prev$contaminant))
+
+contamdf.prev05 <- isContaminant(ps, method="prevalence", neg="is.neg", threshold=0.5)
+table(contamdf.prev05$contaminant)
+
+contam_list<- contamdf.prev05[contamdf.prev05$contaminant=="TRUE",]
+contam_list_w_tax<- merge(contam_list, taxon, by = "row.names")
+
+write.csv(contam_list_w_tax, "true_contaminants.csv")
+
+# Make phyloseq object of presence-absence in negative controls and true samples
+ps.pa <- transform_sample_counts(ps, function(abund) 1*(abund>0))
+ps.pa.neg <- prune_samples(sample_data(ps.pa)$Condition == "blank", ps.pa)
+ps.pa.pos <- prune_samples(sample_data(ps.pa)$Condition == "DD" | sample_data(ps.pa)$Condition == "HD" | sample_data(ps.pa)$Condition == "HH", ps.pa)
+# Make data.frame of prevalence in positive and negative samples
+df.pa <- data.frame(pa.pos=taxa_sums(ps.pa.pos), pa.neg=taxa_sums(ps.pa.neg),
+                      contaminant=contamdf.prev$contaminant)
+ggplot(data=df.pa, aes(x=pa.neg, y=pa.pos, color=contaminant)) + geom_point() +
+  xlab("Prevalence (Negative Controls)") + ylab("Prevalence (True Samples)")
+
+#Filter out Contaminants
+ps_no_contam <- prune_taxa(!contamdf.prev$contaminant, ps)
+ps_no_contam <- subset_samples(ps_no_contam, Condition != "blank")
+
+ps_no_contam_ra<- transform_sample_counts(ps_no_contam, function(OTU) OTU/sum(OTU))
+
+summarize_phyloseq(ps_no_contam)
+ps_no_contam
+
+```
+
+Try beta diversity metrics again now that contaminating sequences and blanks are removed
+
+```{r}
+#filter based on prevalence and max relative abundance
+#Prevalence of a given ASV
+prevdf = apply(X = otu_table(ps_no_contam),
+               MARGIN = ifelse(taxa_are_rows(ps_no_contam), yes = 1, no = 2),
+               FUN = function(x){sum(x > 0)})
+#maximum relative abundance of each ASV
+relabun = apply(otu_table(ps_no_contam_ra), 
+                MARGIN = ifelse(taxa_are_rows(ps_no_contam_ra), yes = 1, no = 2),
+                max)
+
+#create prev and relabun data table w/ taxonomy
+prevdf = data.frame(Prevalence = prevdf,
+                    MaxRelAbundance = relabun,
+                    tax_table(ps_no_contam))
+
+
+# Execute rel abun and prev filter, using `prune_taxa()` function
+# Define abundance and prevelence threshold for taxa 
+# must be >= 0.1% in at least 1 sample, and be in 2 or more samples
+relAbundanceThreshold <- 0.001
+prevalenceThreshold <- 2
+
+keepTaxa <- rownames(prevdf)[(prevdf$MaxRelAbundance >= relAbundanceThreshold &
+                                prevdf$Prevalence >= prevalenceThreshold)]
+
+ps_f2 <- prune_taxa(keepTaxa, ps_no_contam) #ps filt obj
+
+#Write out filtered Dataset Table
+otu_ps_f2 = as(otu_table(ps_f2), "matrix")
+taxon_ps_f2 = as(tax_table(ps_f2), "matrix")
+samples_ps_f2<- as(sample_data(ps_f2), "matrix")
+write.table(otu_ps_f2,"silva_nochloronomito_otu_table_ps_f2.txt",sep="\t",col.names=NA)
+write.table(taxon_ps_f2,"silva_nochloronomito_taxa_table_ps_f2.txt",sep="\t",col.names=NA)
+
+ps_f2
+
+ps_f2_ra<- transform_sample_counts(ps_f2, function(OTU) OTU/sum(OTU))
+```
+
+```{r}
+#Beta Diversity Analyses
+# First, replace 0 values with an estimate (because normalization is taking log, can't have 0)
+# Also transposing here, need samples as rows
+d.czm <- cmultRepl(t(otu_ps_f2), method="CZM", label=0, z.warning = 0.999)
+# Perform the center-log-ratio (CLR) transformation 
+d.clr <- codaSeq.clr(d.czm)
+# transpose matrix of CLR transformed data for ordination and dendrogram
+E.clr <- t(d.clr)
+# plot compositional PCA biplot (perform a singular value decomposition)
+d.pcx <- prcomp(E.clr)
+# calculate percent variance explained for the axis labels
+pc1 <- round(d.pcx$sdev[1]^2/sum(d.pcx$sdev^2),2)
+pc2 <- round(d.pcx$sdev[2]^2/sum(d.pcx$sdev^2),2)
+xlab <- paste("PC1: ", pc1, sep="")
+ylab <- paste("PC2: ", pc2, sep="")
+#biplot(d.pcx, cex=c(0.6,0.4), var.axes=F,scale=1, xlab=xlab, ylab=ylab)
+summary(d.pcx)
+str(d.pcx)
+screeplot(d.pcx)
+
+# replot PCA with ggplot2 (showing samples only)
+df_out <- as.data.frame(d.pcx$x)
+```
+
+```{r}
+palette2<- c("DD" = "#d1495b", "HD" = "#edae49", "HH" = "#00798c")
+
+metadata_ps_f2<- as.data.frame(samples_ps_f2)
+
+p<-ggplot(df_out,aes(x=PC1,y=PC2,fill=metadata_ps_f2$Condition, shape=metadata_ps_f2$Site))
+p<-p+geom_point( size=3.5)+
+  theme(axis.title = element_text(size=14))+
+  theme(axis.text=element_text(size=12))+
+  theme(legend.title = element_text(size=14))+
+  theme(legend.text = element_text(size=12))+
+  theme(legend.position = "right")+
+  theme(legend.title = element_blank()) +
+  theme(legend.key.width = unit(1.0,  unit = "cm")) +
+  guides(fill = guide_legend(byrow = TRUE)) 
+p<- p+ labs(x=xlab, y=ylab, fill="Condition") + coord_fixed()+
+  labs(fill = "Condition", shape="Site")+
+  scale_shape_manual(values = c(21, 22, 23, 24, 25)) +
+  scale_fill_manual(values = palette2, breaks = c("HH", "HD", "DD"), labels = c("H", "U", "D")) +
+  theme_minimal() +
+   labs(x = "Principal Component 1: 30%", y = "Principal Component 2: 5%") +
+  theme(axis.text.x=element_text(colour="black"))+
+  theme(axis.text.y=element_text(colour="black")) +
+  guides(fill = guide_legend(override.aes = list(shape = 21)))
+p
+
+pdf("beta_diversity_PCA_health_site.pdf", width = 8, height=6)
+p
+dev.off()
+```
+
+```{r}
+#Run the PERMANOVA w Site and Condition
+###################PERMANOVA#################
+dist.clr <- dist(E.clr)
+perm<-adonis2(dist.clr~Condition,as(sample_data(ps_f2),"data.frame"))
+print(perm)
+
+write.table(perm, "permanova_results_Condition.txt")
+
+perm<-adonis2(dist.clr~Site,as(sample_data(ps_f2),"data.frame"))
+print(perm)
+
+write.table(perm, "permanova_results_Site.txt")
+```
+
+Because health condition is a significant factor, we need to run the pairwise PERMANOVA to determine which conditions are different from each other. First, we must read in the pairwise.adonis() function. Then we will run it.
+
+```{r}
+#Here we are going to try to subset the different locations and re-run the PERMANOVA
+pairwise.adonis <- function(x,factors, sim.function = 'vegdist', sim.method = 'bray', p.adjust.m ='bonferroni',reduce=NULL,perm=999)
+{
+
+  co <- combn(unique(as.character(factors)),2)
+  pairs <- c()
+  Df <- c()
+  SumsOfSqs <- c()
+  F.Model <- c()
+  R2 <- c()
+  p.value <- c()
+
+
+  for(elem in 1:ncol(co)){
+    if(inherits(x, 'dist')){
+      x1=as.matrix(x)[factors %in% c(as.character(co[1,elem]),as.character(co[2,elem])),
+                      factors %in% c(as.character(co[1,elem]),as.character(co[2,elem]))]
+      }
+
+    else  (
+      if (sim.function == 'daisy'){
+            x1 = daisy(x[factors %in% c(co[1,elem],co[2,elem]),],metric=sim.method)
+        }
+      else{x1 = vegdist(x[factors %in% c(co[1,elem],co[2,elem]),],method=sim.method)}
+    )
+
+    x2 = data.frame(Fac = factors[factors %in% c(co[1,elem],co[2,elem])])
+
+    ad <- adonis2(x1 ~ Fac, data = x2,
+                 permutations = perm);
+    pairs <- c(pairs,paste(co[1,elem],'vs',co[2,elem]));
+    Df <- c(Df,ad$Df[1])
+    SumsOfSqs <- c(SumsOfSqs,ad$SumOfSqs[1])
+    F.Model <- c(F.Model,ad$F[1]);
+    R2 <- c(R2,ad$R2[1]);
+    p.value <- c(p.value,ad$`Pr(>F)`[1])
+  }
+  p.adjusted <- p.adjust(p.value,method=p.adjust.m)
+
+  sig = c(rep('',length(p.adjusted)))
+  sig[p.adjusted <= 0.05] <-'.'
+  sig[p.adjusted <= 0.01] <-'*'
+  sig[p.adjusted <= 0.001] <-'**'
+  sig[p.adjusted <= 0.0001] <-'***'
+  pairw.res <- data.frame(pairs,Df,SumsOfSqs,F.Model,R2,p.value,p.adjusted,sig)
+
+  if(!is.null(reduce)){
+    pairw.res <- subset (pairw.res, grepl(reduce,pairs))
+    pairw.res$p.adjusted <- p.adjust(pairw.res$p.value,method=p.adjust.m)
+
+    sig = c(rep('',length(pairw.res$p.adjusted)))
+    sig[pairw.res$p.adjusted <= 0.1] <-'.'
+    sig[pairw.res$p.adjusted <= 0.05] <-'*'
+    sig[pairw.res$p.adjusted <= 0.01] <-'**'
+    sig[pairw.res$p.adjusted <= 0.001] <-'***'
+    pairw.res <- data.frame(pairw.res[,1:7],sig)
+  }
+  class(pairw.res) <- c("pwadonis", "data.frame")
+  return(pairw.res)
+}
+
+### Method summary
+summary.pwadonis = function(object, ...) {
+  cat("Result of pairwise.adonis:\n")
+  cat("\n")
+  print(object, ...)
+  cat("\n")
+  cat("Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1\n")
+}
+
+set.seed(123)
+## Run pairwise permanova
+groups <- as.character(sample_data(ps_f2)$Condition) # Apparently, my function doesn't like factors
+pairwise.adonis(x=dist.clr, factors= groups)
+```
+
+```{r}
+## Run pairwise permanova
+groups <- as.character(sample_data(ps_f2)$Site) # Apparently, my function doesn't like factors
+pairwise.adonis(x=dist.clr, factors= groups)
+```
+
+```{r}
+### Beta Diversity Dispersions - Condition
+#calculate multivariate dispersions based on Condition
+mod <-betadisper(dist.clr, metadata_ps_f2$Condition)
+#one way anova
+anova(mod)
+#boxplots
+pdf("beta_dispersion_condition.pdf",width=8.5)
+plot(mod)
+dev.off()
+```
+
+```{r}
+## Compute mean distance to centroid per group
+#this just prints values on the console
+tapply(mod$distances, metadata_ps_f2$Condition, mean)
+## Same, but variance instead
+tapply(mod$distances, metadata_ps_f2$Condition, var)
+
+#Get the distances to centroid from the model
+mod$distances
+dis <- mod$distances
+#melt
+dis.melt <- melt(dis)
+#move rownames to columns so we can merge the dispersion values and metadata
+dis.melt$Sample <- rownames(dis.melt)
+samples$Sample <- rownames(samples)
+#merge metadata and dispersion 
+dis.condition <- merge(samples, dis.melt)
+#rename column
+colnames(dis.condition)[6] <- "distance"
+
+shapiro.test(dis.condition$distance) #Not normally distributed, use kruskal test
+distance.test<- kruskal.test(distance ~ Condition, data=dis.condition)
+print(distance.test)
+
+capture.output(distance.test,file="kruskal_distance_to_centroid.txt")
+
+#Post Hoc Test
+library(FSA)
+dunnTest(distance ~ Condition,
+  data = dis.condition,
+  method = "bonferroni"
+)
+```
+
+```{r}
+library(ggpubr)
+p2<-ggplot(dis.condition, aes(x=Condition, y=distance)) +
+  geom_violin(mapping =aes(x=Condition,y=distance, fill=Condition, color="black"), alpha = 0.6) +
+  geom_point(position=position_jitter(width=.1, height=0),aes(colour="black",fill=Condition),size=4, pch=21, colour = "black") +
+  scale_fill_manual(values = palette2) +
+  scale_color_manual(values = c( "black")) +
+  ylab("Distance to Centroid")+
+  xlab("Health Condition")+
+  guides(color="none") +
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(axis.text.x = element_text(colour="black"))+
+  theme(axis.text.y = element_text(colour="black"))+
+  theme(axis.text.x = element_text(size = 12))+
+  theme(axis.text.y = element_text(size = 12))+
+  theme(axis.title.x = element_text(size = 16))+
+  theme(axis.title.y = element_text(size = 16))+
+  theme(strip.text.x=element_text(size=16, face="bold"))+
+  theme(legend.position = "none") +
+  stat_compare_means(
+    comparisons = list(c("DD", "HH")),
+    method = "t.test",
+    label = "p.signif")
+p2
+```
+
+```{r}
+#Make it a boxplot
+library(ggpubr)
+p2<-ggplot(dis.condition, aes(x=factor(Condition, levels=c("HH", "HD", "DD")), y=distance)) +
+  geom_boxplot(mapping =aes(x=Condition,y=distance, fill=Condition, color="black"), alpha = 0.6) +
+  geom_point(position=position_jitter(width=.1, height=0),aes(colour="black",fill=Condition),size=4, pch=21, colour = "black") +
+  scale_fill_manual(values = palette2) +
+  scale_color_manual(values = c( "black")) +
+  ylab("Distance to Centroid")+
+  xlab("Health Condition")+
+  guides(color="none") +
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(axis.text.x = element_text(colour="black"))+
+  theme(axis.text.y = element_text(colour="black"))+
+  theme(axis.text.x = element_text(size = 12))+
+  theme(axis.text.y = element_text(size = 12))+
+  theme(axis.title.x = element_text(size = 16))+
+  theme(axis.title.y = element_text(size = 16))+
+  theme(strip.text.x=element_text(size=16, face="bold"))+
+  theme(legend.position = "none") +
+  stat_compare_means(
+    comparisons = list(c("DD", "HH")),
+    method = "t.test",
+    label = "p.signif") +
+  scale_x_discrete(labels = c("DD" = "HH", 
+                              "HD" = "HD",
+                              "HH" = "DD"))
+p2
+```
+
+```{r}
+#What Microbes are present?
+library(metacoder)
+
+set.seed(123)
+
+obj <- parse_phyloseq(ps_f2)
+
+obj %>%
+  filter_taxa(grepl(pattern = "^[a-zA-Z]+$", taxon_names)) %>% # remove "odd" taxa
+  filter_taxa(taxon_ranks == "Class", supertaxa = TRUE) %>% # subset to the class rank
+  heat_tree(node_label = taxon_names,
+            node_size = n_obs,
+            node_color = n_obs,
+            initial_layout = "re", layout = "da",
+            output_file = "metacoder_plot_class.pdf")
+
+obj %>%
+  filter_taxa(grepl(pattern = "^[a-zA-Z]+$", taxon_names)) %>% # remove "odd" taxa
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>% # subset to the class rank
+  heat_tree(node_label = taxon_names,
+            node_size = n_obs,
+            node_color = n_obs,
+            initial_layout = "re", layout = "da",
+            output_file = "metacoder_plot_order.pdf")
+```
+
+```{r}
+ps_f2_HH<- subset_samples(ps_f2, Condition =="HH")
+ps_f2_HH_pruned <- prune_taxa(taxa_sums(ps_f2_HH) > 0, ps_f2_HH)
+
+
+obj_HH <- parse_phyloseq(ps_f2_HH_pruned)
+
+obj_HH %>%
+  filter_taxa(grepl(pattern = "^[a-zA-Z]+$", taxon_names)) %>% # remove "odd" taxa
+  filter_taxa(taxon_ranks == "Class", supertaxa = TRUE) %>% # subset to the class rank
+  heat_tree(node_label = taxon_names,
+            node_size = n_obs,
+            node_color = n_obs,
+            initial_layout = "re", layout = "da",
+            output_file = "metacoder_HH_plot_class.pdf")
+
+obj_HH %>%
+  filter_taxa(grepl(pattern = "^[a-zA-Z]+$", taxon_names)) %>% # remove "odd" taxa
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>% # subset to the class rank
+  heat_tree(node_label = taxon_names,
+            node_size = n_obs,
+            node_color = n_obs,
+            initial_layout = "re", layout = "da",
+            output_file = "metacoder_HH_plot_order.pdf")
+
+```
+
+```{r}
+ps_f2_HD<- subset_samples(ps_f2, Condition =="HD")
+ps_f2_HD_pruned <- prune_taxa(taxa_sums(ps_f2_HD) > 0, ps_f2_HD)
+
+obj_HD <- parse_phyloseq(ps_f2_HD_pruned)
+
+obj_HD %>%
+  filter_taxa(grepl(pattern = "^[a-zA-Z]+$", taxon_names)) %>% # remove "odd" taxa
+  filter_taxa(taxon_ranks == "Class", supertaxa = TRUE) %>% # subset to the class rank
+  heat_tree(node_label = taxon_names,
+            node_size = n_obs,
+            node_color = n_obs,
+            initial_layout = "re", layout = "da",
+            output_file = "metacoder_HD_plot_class.pdf")
+
+obj_HD %>%
+  filter_taxa(grepl(pattern = "^[a-zA-Z]+$", taxon_names)) %>% # remove "odd" taxa
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>% # subset to the class rank
+  heat_tree(node_label = taxon_names,
+            node_size = n_obs,
+            node_color = n_obs,
+            initial_layout = "re", layout = "da",
+            output_file = "metacoder_HD_plot_order.pdf")
+
+```
+
+```{r}
+ps_f2_DD<- subset_samples(ps_f2, Condition =="DD")
+ps_f2_DD_pruned <- prune_taxa(taxa_sums(ps_f2_DD) > 0, ps_f2_DD)
+
+ps_f2_DD_pruned
+
+obj_DD <- parse_phyloseq(ps_f2_DD_pruned)
+
+obj_DD %>%
+  filter_taxa(grepl(pattern = "^[a-zA-Z]+$", taxon_names)) %>% # remove "odd" taxa
+  filter_taxa(taxon_ranks == "Class", supertaxa = TRUE) %>% # subset to the class rank
+  heat_tree(node_label = taxon_names,
+            node_size = n_obs,
+            node_color = n_obs,
+            initial_layout = "re", layout = "da",
+            output_file = "metacoder_DD_plot_class.pdf")
+
+obj_DD %>%
+  filter_taxa(grepl(pattern = "^[a-zA-Z]+$", taxon_names)) %>% # remove "odd" taxa
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>% # subset to the class rank
+  heat_tree(node_label = taxon_names,
+            node_size = n_obs,
+            node_color = n_obs,
+            initial_layout = "re", layout = "da",
+            output_file = "metacoder_DD_plot_order.pdf")
+
+```
+
+```{r}
+#Try it again with relative abundance
+obj_DD = parse_phyloseq(ps_f2_DD_pruned)
+
+print(obj_DD$data$sample_data$sample_id)
+print(obj_DD$data$tax_data$otu_id)
+print(colnames(obj_DD$data$otu_table))
+
+obj_DD$data$otu_props <- calc_obs_props(obj_DD, "otu_table", cols = obj_DD$data$sample_data$sample_id)
+
+obj_DD$data$tax_abund <- calc_taxon_abund(obj_DD, "otu_props", cols = obj_DD$data$sample_data$sample_id)
+
+obj_DD$data$tax_mean_prop <- calc_group_mean(obj_DD, data = "tax_abund",
+                                          cols = obj_DD$data$sample_data$sample_id,
+                                          groups = "mean_prop")
+
+obj_DD %>% 
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>% # subset to the order rank
+  heat_tree(node_label = taxon_names,
+            node_size = mean_prop,
+            node_color = mean_prop,
+            initial_layout = "re", layout = "da",
+            output_file = "metacoder_DD_plot_order_RA.pdf")
+
+```
+
+```{r}
+obj_HD = parse_phyloseq(ps_f2_HD_pruned)
+
+print(obj_HD$data$sample_data$sample_id)
+print(obj_HD$data$tax_data$otu_id)
+print(colnames(obj_HD$data$otu_table))
+
+obj_HD$data$otu_props <- calc_obs_props(obj_HD, "otu_table", cols = obj_HD$data$sample_data$sample_id)
+
+obj_HD$data$tax_abund <- calc_taxon_abund(obj_HD, "otu_props", cols = obj_HD$data$sample_data$sample_id)
+
+obj_HD$data$tax_mean_prop <- calc_group_mean(obj_HD, data = "tax_abund",
+                                          cols = obj_HD$data$sample_data$sample_id,
+                                          groups = "mean_prop")
+
+obj_HD %>% 
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>% # subset to the order rank
+  heat_tree(node_label = taxon_names,
+            node_size = mean_prop,
+            node_color = mean_prop,
+            initial_layout = "re", layout = "da",
+            output_file = "metacoder_HD_plot_order_RA.pdf")
+
+```
+
+```{r}
+obj_HH = parse_phyloseq(ps_f2_HH_pruned)
+
+print(obj_HH$data$sample_data$sample_id)
+print(obj_HH$data$tax_data$otu_id)
+print(colnames(obj_HH$data$otu_table))
+
+obj_HH$data$otu_props <- calc_obs_props(obj_HH, "otu_table", cols = obj_HH$data$sample_data$sample_id)
+
+obj_HH$data$tax_abund <- calc_taxon_abund(obj_HH, "otu_props", cols = obj_HH$data$sample_data$sample_id)
+
+obj_HH$data$tax_mean_prop <- calc_group_mean(obj_HH, data = "tax_abund",
+                                          cols = obj_HH$data$sample_data$sample_id,
+                                          groups = "mean_prop")
+
+obj_HH %>% 
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>% # subset to the order rank
+  heat_tree(node_label = taxon_names,
+            node_size = mean_prop,
+            node_color = mean_prop,
+            initial_layout = "re", layout = "da",
+            output_file = "metacoder_HH_plot_order_RA.pdf")
+
+```
+
+Hmm, it looks like the DD samples overall are more diverse. Additionally, there are less Cyanobacteria and more Firmicutes in DD samples.
+
+We should test alpha diversity between the different groups.
+
+```{r}
+#Alpha Diversity Analyses
+#Statistical Test
+data_adiv<- estimate_richness(ps_f2, measures  = c("Shannon", "InvSimpson", "Observed"))
+shapiro.test(data_adiv$Shannon) #Not Normal
+shapiro.test(data_adiv$InvSimpson) #Not Normal
+shapiro.test(data_adiv$Observed) #Not Normal
+
+adiv_df<- as.data.frame(ps_f2@sam_data)
+adiv_df$Shannon<- data_adiv$Shannon 
+adiv_df$Simpson<- data_adiv$InvSimpson
+adiv_df$Observed<- data_adiv$Observed
+
+adiv_df<- as(sample_data(adiv_df), "matrix")
+adiv_df<- as.data.frame(adiv_df)
+kruskal.test(Shannon ~ Condition, data=adiv_df) #Not significant
+kruskal.test(Observed ~ Condition, data=adiv_df) #Not significant
+kruskal.test(Simpson ~ Condition, data=adiv_df) #not significant
+```
+
+```{r}
+pdf("Alpha_Div_Boxplot_Condition.pdf",width=8.25, height=6)
+richness<- plot_richness(ps_f2, x="Condition", measures=c("Shannon", "InvSimpson", "Observed"))
+richness$layers <- richness$layers[-1]
+richness + 
+  geom_boxplot( alpha = 0.6,  outlier.shape=NA, color="black", aes(fill = Condition))+
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  theme(strip.background =element_rect(fill="white"))+
+  theme(axis.text.x = element_text(colour="black"))+
+  theme(axis.text.y = element_text(colour="black"))+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1.1, vjust=1.1))+
+  theme(axis.text.x = element_text(size = 14))+
+  theme(axis.text.y = element_text(size = 14))+
+  theme(axis.title.x = element_text(size = 18))+
+  theme(axis.title.y = element_text(size = 18))+
+  theme(strip.text.x=element_text(size=16, face="bold"))+
+  theme(legend.title = element_text(size = 16, face = "bold"))+
+  theme(legend.text = element_text(size = 12)) +
+  labs(x="Condition") +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    panel.background = element_blank(),  # Remove panel background
+    axis.line = element_line(color = "black")  # Add axis lines
+  ) +
+  scale_fill_manual(values = palette2) 
+dev.off()
+```
+
+Which Microbes Are Enriched in Healthy vs. Diseased Tissue?
+
+```{r}
+ps_f2
+ps_HH_DD<- subset_samples(ps_f2, Condition == "HH" | Condition == "DD")
+ps_HH_DD
+
+ps_HH_DD_pruned <- prune_taxa(taxa_sums(ps_HH_DD) > 0, ps_HH_DD)
+ps_HH_DD_pruned
+
+# Define the order of the conditions for testing
+# In this order, the positive fold change values are increased in Diseased Tissue
+sample_data(ps_HH_DD_pruned)$Condition<-factor(sample_data(ps_HH_DD_pruned)$Condition,levels=c("HH","DD"))
+head(sample_data(ps_HH_DD_pruned)$Condition, 10)
+
+# DESEQ2 analysis on Dcyl Samples
+dds = phyloseq_to_deseq2(ps_HH_DD_pruned, ~ Condition)
+dds
+#filter rows with very few counts
+dds <- dds[ rowSums(counts(dds)) > 5, ]
+cts <- counts(dds)
+geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+dds <- DESeq(dds,test="Wald", fitType="parametric")
+res = results(dds, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ps)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+dim(sigtab)
+#save table of results
+sig = as(sigtab, "matrix")
+write.table(sig,"DESeq2_results.txt",sep="\t",col.names=NA)
+sig_dif_hh_dd<- read.table("DESeq2_results.txt", header = TRUE)
+colnames(sig_dif)[1]<- "ASV"
+
+#Count how many phyla
+phyla<-unique(sig_dif$Phylum)
+print(phyla)
+
+tenacibaculum<- sig_dif[sig_dif$Genus =="Tenacibaculum",]
+print(tenacibaculum$ASV)
+
+vibrio<- sig_dif[sig_dif$Genus =="Vibrionaceae",]
+print(vibrio$ASV)
+
+cols <- c("Proteobacteria"="#003049", "Bdellovibrionota"="#d62828", "Bacteroidota" = "#f77f00", "Firmicutes" = "#fcbf49", "Verrucomicrobiota" = "#eae2b7")
+
+
+#Create Figure for Significantly Different Taxa
+pdf("FigureDEtaxa.pdf",width=11,height=8)
+p1 <- ggplot(sig_dif,aes(log2FoldChange,Genus,fill=Phylum))+
+  geom_point(size=5, shape=21)+
+  geom_errorbarh(aes(xmin=log2FoldChange-lfcSE, xmax=log2FoldChange+lfcSE),height=0.2)+
+  scale_fill_manual(values=cols)+
+  theme(plot.title = element_text(face="italic"))+
+  labs(y= "Lowest Taxonomic Assignment")+
+  theme(axis.title=element_text(size=14))+
+  theme(legend.text=element_text(size=14))+
+  theme(legend.title=element_text(size=16))+
+  theme(axis.text=element_text(size=14, color="black"))+
+  theme(legend.position = "right")+
+  geom_vline(xintercept=0, linetype="dashed") +
+  theme(panel.grid = element_blank()) +
+  theme(panel.background = element_blank())
+p1
+dev.off()
+```
+
+We're going to try this again, but colored by Order instead.
+
+```{r}
+#Count how many orders
+orders<-unique(sig_dif$Order)
+print(orders)
+
+cols <- c("Rhodobacterales"="#003049", "Oligoflexales"="#d62828", "Flavobacteriales" = "#f77f00", "Mycoplasmatales" = "#fcbf49", "Verrucomicrobiales" = "#eae2b7", "Enterobacterales" = "#c8553d", "Micavibrionales" = "#588b8b")
+
+
+#Create Figure for Significantly Different Taxa
+pdf("FigureDEtaxa.pdf",width=11,height=8)
+p1 <- ggplot(sig_dif,aes(log2FoldChange,Genus,fill=Order))+
+  geom_point(size=5, shape=21)+
+  geom_errorbarh(aes(xmin=log2FoldChange-lfcSE, xmax=log2FoldChange+lfcSE),height=0.2)+
+  scale_fill_manual(values=cols)+
+  theme(plot.title = element_text(face="italic"))+
+  labs(y= "Lowest Taxonomic Assignment")+
+  theme(axis.title=element_text(size=14))+
+  theme(legend.text=element_text(size=14))+
+  theme(legend.title=element_text(size=16))+
+  theme(axis.text=element_text(size=14, color="black"))+
+  theme(legend.position = "right")+
+  geom_vline(xintercept=0, linetype="dashed") +
+  theme(panel.grid = element_blank()) +
+  theme(panel.background = element_blank())
+p1
+dev.off()
+```
+
+It seems like there are some patterns that may not be captured by looking at the ASV level. I will now agglomerate by different taxonomic levels to tease out some of these patterns.
+
+```{r}
+###Genus level agglomeration
+ps
+ps_genus<- tax_glom(ps, taxrank = "Genus")
+ps_genus
+
+#Need to Glom the taxa
+ps_genus_HH_DD<- subset_samples(ps_genus, Condition == "HH" | Condition == "DD")
+ps_genus_HH_DD
+
+ps_genus_HH_DD_pruned <- prune_taxa(taxa_sums(ps_genus_HH_DD) > 0, ps_genus_HH_DD)
+ps_genus_HH_DD_pruned
+
+# Define the order of the conditions for testing
+# In this order, the positive fold change values are increased in Diseased Tissue
+sample_data(ps_genus_HH_DD_pruned)$Condition<-factor(sample_data(ps_genus_HH_DD_pruned)$Condition,levels=c("HH","DD"))
+head(sample_data(ps_genus_HH_DD_pruned)$Condition, 10)
+
+# DESEQ2 analysis on Dcyl Samples
+dds = phyloseq_to_deseq2(ps_genus_HH_DD_pruned, ~ Condition)
+dds
+#filter rows with very few counts
+dds <- dds[ rowSums(counts(dds)) > 5, ]
+cts <- counts(dds)
+geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+dds <- DESeq(dds,test="Wald", fitType="parametric")
+res = results(dds, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ps)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+dim(sigtab)
+#save table of results
+sig = as(sigtab, "matrix")
+write.table(sig,"DESeq2_results_Genus.txt",sep="\t",col.names=NA)
+sig_dif<- read.table("DESeq2_results_Genus.txt", header = TRUE)
+colnames(sig_dif)[1]<- "ASV"
+
+#Count how many phyla
+cols <- c("Proteobacteria"="#003049", "Bdellovibrionota"="#d62828", "Campylobacterota"= "#6a040f","Bacteroidota" = "#f77f00", "Firmicutes" = "#fcbf49", "Verrucomicrobiota" = "#eae2b7", "Patescibacteria" = "#0a9396")
+
+
+#Create Figure for Significantly Different Taxa
+pdf("FigureDEtaxa_Genus.pdf",width=8,height=6)
+p1 <- ggplot(sig_dif,aes(log2FoldChange,Genus,fill=Phylum))+
+  geom_point(size=7, shape=21)+
+  geom_errorbarh(aes(xmin=log2FoldChange-lfcSE, xmax=log2FoldChange+lfcSE),height=0.2)+
+  scale_fill_manual(values=cols)+
+  theme(plot.title = element_text(face="italic"))+
+  labs(y= "Lowest Taxonomic Assignment")+
+  theme(axis.title=element_text(size=14))+
+  theme(legend.text=element_text(size=14))+
+  theme(legend.title=element_text(size=16))+
+  theme(axis.text=element_text(size=14, color="black"))+
+  theme(legend.position = "right")+
+  geom_vline(xintercept=0, linetype="dashed") +
+  theme(panel.grid = element_blank()) +
+  theme(panel.background = element_blank())
+p1
+dev.off()
+```
+
+```{r}
+###Family level agglomeration
+ps
+ps_fam<- tax_glom(ps, taxrank = "Family")
+ps_fam
+
+#Need to Glom the taxa
+ps_fam_HH_DD<- subset_samples(ps_fam, Condition == "HH" | Condition == "DD")
+ps_fam_HH_DD
+
+ps_fam_HH_DD_pruned <- prune_taxa(taxa_sums(ps_fam_HH_DD) > 0, ps_fam_HH_DD)
+ps_fam_HH_DD_pruned #448 Microbial Families
+
+# Define the order of the conditions for testing
+# In this order, the positive fold change values are increased in Diseased Tissue
+sample_data(ps_fam_HH_DD_pruned)$Condition<-factor(sample_data(ps_fam_HH_DD_pruned)$Condition,levels=c("HH","DD"))
+head(sample_data(ps_fam_HH_DD_pruned)$Condition, 10)
+
+# DESEQ2 analysis on Dcyl Samples
+dds = phyloseq_to_deseq2(ps_fam_HH_DD_pruned, ~ Condition)
+dds
+#filter rows with very few counts
+dds <- dds[ rowSums(counts(dds)) > 5, ]
+cts <- counts(dds)
+geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+dds <- DESeq(dds,test="Wald", fitType="parametric")
+res = results(dds, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ps)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+dim(sigtab)
+#save table of results
+sig = as(sigtab, "matrix")
+write.table(sig,"DESeq2_results_Family.txt",sep="\t",col.names=NA)
+sig_dif<- read.table("DESeq2_results_Family.txt", header = TRUE)
+colnames(sig_dif)[1]<- "ASV"
+
+#Count how many phyla
+print(unique(sig_dif$Phylum))
+
+cols <- c("Proteobacteria"="#003049", "Bdellovibrionota"="#d62828", "Campylobacterota"= "#6a040f","Bacteroidota" = "#f77f00", "Firmicutes" = "#fcbf49", "Verrucomicrobiota" = "#eae2b7", "Patescibacteria" = "#0a9396")
+
+
+#Create Figure for Significantly Different Taxa
+pdf("FigureDEtaxa_Family.pdf",width=8,height=6)
+p1 <- ggplot(sig_dif,aes(log2FoldChange,Family,fill=Phylum))+
+  geom_point(size=7, shape=21)+
+  geom_errorbarh(aes(xmin=log2FoldChange-lfcSE, xmax=log2FoldChange+lfcSE),height=0.2)+
+  scale_fill_manual(values=cols)+
+  theme(plot.title = element_text(face="italic"))+
+  labs(y= "Family")+
+  theme(axis.title=element_text(size=14))+
+  theme(legend.text=element_text(size=14))+
+  theme(legend.title=element_text(size=16))+
+  theme(axis.text=element_text(size=14, color="black"))+
+  theme(legend.position = "right")+
+  geom_vline(xintercept=0, linetype="dashed") +
+  theme(panel.grid = element_blank()) +
+  theme(panel.background = element_blank())
+p1
+dev.off()
+```
+
+```{r}
+###Order level agglomeration
+ps
+ps_order<- tax_glom(ps, taxrank = "Order")
+ps_order
+
+#Need to Glom the taxa
+ps_order_HH_DD<- subset_samples(ps_order, Condition == "HH" | Condition == "DD")
+ps_order_HH_DD
+
+ps_order_HH_DD_pruned <- prune_taxa(taxa_sums(ps_order_HH_DD) > 0, ps_order_HH_DD)
+ps_order_HH_DD_pruned #256 Orders
+
+# Define the order of the conditions for testing
+# In this order, the positive fold change values are increased in Diseased Tissue
+sample_data(ps_order_HH_DD_pruned)$Condition<-factor(sample_data(ps_order_HH_DD_pruned)$Condition,levels=c("HH","DD"))
+head(sample_data(ps_order_HH_DD_pruned)$Condition, 10)
+
+# DESEQ2 analysis on Dcyl Samples
+dds = phyloseq_to_deseq2(ps_order_HH_DD_pruned, ~ Condition)
+dds
+#filter rows with very few counts
+dds <- dds[ rowSums(counts(dds)) > 5, ]
+cts <- counts(dds)
+geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+dds <- DESeq(dds,test="Wald", fitType="parametric")
+res = results(dds, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ps)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+dim(sigtab)
+#save table of results
+sig = as(sigtab, "matrix")
+write.table(sig,"DESeq2_results_Order.txt",sep="\t",col.names=NA)
+sig_dif<- read.table("DESeq2_results_Order.txt", header = TRUE)
+colnames(sig_dif)[1]<- "ASV"
+
+#Count how many phyla
+print(unique(sig_dif$Phylum))
+
+cols <- c("Proteobacteria"="#003049", "Bdellovibrionota"="#d62828", "Bacteroidota" = "#f77f00", "Firmicutes" = "#fcbf49", "Verrucomicrobiota" = "#eae2b7", "Patescibacteria" = "#0a9396")
+
+
+#Create Figure for Significantly Different Taxa
+pdf("FigureDEtaxa_Order.pdf",width=8,height=6)
+p1 <- ggplot(sig_dif,aes(log2FoldChange,Order,fill=Phylum))+
+  geom_point(size=7, shape=21)+
+  geom_errorbarh(aes(xmin=log2FoldChange-lfcSE, xmax=log2FoldChange+lfcSE),height=0.2)+
+  scale_fill_manual(values=cols)+
+  theme(plot.title = element_text(face="italic"))+
+  labs(y= "Taxonomic Order")+
+  theme(axis.title=element_text(size=14))+
+  theme(legend.text=element_text(size=14))+
+  theme(legend.title=element_text(size=16))+
+  theme(axis.text=element_text(size=14, color="black"))+
+  theme(legend.position = "right")+
+  geom_vline(xintercept=0, linetype="dashed") +
+  theme(panel.grid = element_blank()) +
+  theme(panel.background = element_blank())
+p1
+dev.off()
+```
+
+Now, we Will Create a Custom Database to Match the Sequences In This Project To Those From Becker et al., 2020 and Meyer et al., 2019.
+
+```{r}
+#Read in Becker Bioindicator FASTA
+bioindics<- read.fasta(file = "Bioindicator_ASVs_Becker_etal_2020.fasta", seqtype="DNA",
+                       as.string = TRUE, forceDNAtolower = FALSE)
+bioindics1<- unlist(bioindics)
+
+sctld_seqs<- read.fasta(file = "5ASvs_SCTLD.fasta",seqtype = "DNA", as.string = TRUE, forceDNAtolower = FALSE)
+sctld_seqs1<- unlist(sctld_seqs)
+
+db_seqs<- c(bioindics1, sctld_seqs)
+write.fasta(as.list(db_seqs), names = names(db_seqs), file.out = "db_seqs.fasta", open = "w")
+
+
+#Create FASTA out of ASVs from FLP study
+#Take the rownames of the OTU Table and turn them into a FASTA file
+otu<- as(otu_table(ps_f2), "matrix")
+sequences<- colnames(otu)
+names(sequences)<- paste('ASV',1:1202, sep="")
+write.fasta(as.list(sequences), names = names(sequences), file.out = "FLP_Project_ASVs.fasta", open = "w")
+
+blast_out<- system2(command = "/usr/local/ncbi/blast/bin/blastn", 
+        args = c("-db SCTLD_db -query FLP_Project_ASVs.fasta -outfmt 6 -evalue 10e-6 -ungapped"),
+        wait = TRUE,
+        stdout = TRUE)
+
+colnames <- c("qseqid",
+              "sseqid",
+              "pident",
+              "length",
+              "mismatch",
+              "gapopen",
+              "qstart",
+              "qend",
+              "sstart",
+              "send",
+              "evalue",
+              "bitscore")
+
+tidy_blast <- blast_out %>%
+  as_tibble %>% 
+  separate(col = value, 
+           into = colnames,
+           sep = "\t",
+           convert = TRUE)
+
+#Get the ASVs that had 100% identity
+tidy_blast_100<- tidy_blast[tidy_blast$pident==100,]
+
+#Get the Sequences that are 100% across the entire sequence length
+tidy_blast_100<- tidy_blast_100[tidy_blast_100$length>=126,]
+
+#Are any of these the same ASVs as the Enriched in Diseased Lesions When Compared to Healthy Tissue on Healthy Colonies?
+#Get sequences for ASVs with 100% identity
+iden_asvs<- tidy_blast_100$qseqid
+iden_seqs<- sequences[names(sequences) %in% iden_asvs]
+tidy_blast_100_no_repeats<- tidy_blast_100[-15,]
+
+tidy_blast_100_no_repeats$sequence<- sequences[names(sequences) %in% tidy_blast_100$qseqid]
+
+write.csv(tidy_blast_100_no_repeats, "blast_hits_100.csv")
+
+sequence_blast_hits<- tidy_blast_100_no_repeats$sequence
+
+sig_dif_hh_dd_asvs<- sig_dif_hh_dd$ASV
+
+print(intersect(iden_seqs, sig_dif_hh_dd_asvs))
+
+common_asvs<- intersect(iden_seqs, sig_dif_hh_dd_asvs)
+
+#Can we get Taxonomy for these matches?
+
+sequence_matches<- sequences[names(sequences) %in% tidy_blast_100$qseqid]
+
+asvs_of_matches<- c()
+
+tax<- as.data.frame(ps_f2@tax_table)
+tax_of_matches<- tax[rownames(tax) %in% sequence_matches,]
+
+
+
+```
+
+```{r}
+#Make A Relative Abundance Plot for Differentially ABundant ASVs
+ps_f2
+
+# Remove specific samples
+samples_to_remove <- c("DEPBlank3-14-24", "DEPBlank3-6-24")
+ps_f2_pruned <- prune_samples(!(sample_names(ps_f2) %in% samples_to_remove), ps_f2)
+
+ps_f2_pruned
+
+ps_f2_ra <- transform_sample_counts(ps_f2_pruned, function(OTU) OTU/sum(OTU))
+
+dd_enriched <- subset_taxa(ps_f2_ra, row.names(ps_f2_ra@tax_table) %in% sig_dif_hh_dd_asvs)
+
+dd_enriched
+
+dd_melt <- psmelt(dd_enriched)
+
+palette2<- c("DD" = "#d1495b", "HD" = "#edae49", "HH" = "#00798c")
+
+new_labels <- setNames(dd_melt$Genus, dd_melt$OTU)
+
+unique_asvs<- unique(dd_melt$OTU)
+
+ggplot(dd_melt, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot() +
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black"))
+
+```
+
+```{r}
+#Subset by ASV
+dd_melt_1<- dd_melt[dd_melt$OTU == unique_asvs[1],]
+
+
+dd_plot_1<- ggplot(dd_melt_1, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_1
+```
+
+```{r}
+dd_melt_2<- dd_melt[dd_melt$OTU == unique_asvs[2],]
+
+dd_plot_2<- ggplot(dd_melt_2, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank())+
+  theme(axis.title.x = element_blank())
+
+dd_plot_2
+```
+
+```{r}
+dd_melt_3<- dd_melt[dd_melt$OTU == unique_asvs[3],]
+
+dd_plot_3<- ggplot(dd_melt_3, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank())+
+  theme(axis.title.x = element_blank())
+
+dd_plot_3
+```
+
+```{r}
+dd_melt_4<- dd_melt[dd_melt$OTU == unique_asvs[4],]
+
+dd_plot_4<- ggplot(dd_melt_4, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank())+
+  theme(axis.title.x = element_blank())
+
+dd_plot_4
+
+```
+
+```{r}
+dd_melt_5<- dd_melt[dd_melt$OTU == unique_asvs[5],]
+
+dd_plot_5<- ggplot(dd_melt_5, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank())+
+  theme(axis.title.x = element_blank())
+
+dd_plot_5
+
+```
+
+```{r}
+dd_melt_6<- dd_melt[dd_melt$OTU == unique_asvs[6],]
+
+dd_plot_6<- ggplot(dd_melt_6, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank())+
+  theme(axis.title.x = element_blank())
+
+dd_plot_6
+```
+
+```{r}
+dd_melt_7<- dd_melt[dd_melt$OTU == unique_asvs[7],]
+
+dd_plot_7<- ggplot(dd_melt_7, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank())+
+  theme(axis.title.x = element_blank())
+
+dd_plot_7
+```
+
+```{r}
+dd_melt_8<- dd_melt[dd_melt$OTU == unique_asvs[8],]
+
+dd_plot_8<- ggplot(dd_melt_8, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank())+
+  theme(axis.title.x = element_blank())
+
+dd_plot_8
+```
+
+```{r}
+dd_melt_9<- dd_melt[dd_melt$OTU == unique_asvs[9],]
+
+dd_plot_9<- ggplot(dd_melt_9, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_9
+```
+
+```{r}
+dd_melt_10<- dd_melt[dd_melt$OTU == unique_asvs[10],]
+
+dd_plot_10<- ggplot(dd_melt_10, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Condition", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank())+
+  theme(axis.title.x = element_blank())
+
+dd_plot_10
+```
+
+```{r}
+dd_melt_11<- dd_melt[dd_melt$OTU == unique_asvs[11],]
+
+dd_plot_11<- ggplot(dd_melt_11, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Condition", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank())+
+  theme(axis.title.x = element_blank())
+
+dd_plot_11
+```
+
+```{r}
+dd_melt_12<- dd_melt[dd_melt$OTU == unique_asvs[12],]
+
+dd_plot_12<- ggplot(dd_melt_12, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Condition", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank())+
+  theme(axis.title.x = element_blank())
+
+dd_plot_12
+```
+
+```{r}
+dd_melt_13<- dd_melt[dd_melt$OTU == unique_asvs[13],]
+
+dd_plot_13<- ggplot(dd_melt_13, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Condition", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank())+
+  theme(axis.title.x = element_blank())
+
+dd_plot_13
+```
+
+```{r}
+dd_melt_14<- dd_melt[dd_melt$OTU == unique_asvs[14],]
+
+dd_plot_14<- ggplot(dd_melt_14, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Condition", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank())+
+  theme(axis.title.x = element_blank())
+
+dd_plot_14
+```
+
+```{r}
+library(cowplot)
+
+combined_plot<- plot_grid(dd_plot_1, dd_plot_2, dd_plot_3, dd_plot_4, dd_plot_5, dd_plot_6, dd_plot_7, dd_plot_8, dd_plot_9, dd_plot_10, dd_plot_11, dd_plot_12, dd_plot_13, dd_plot_14, ncol=4, nrow = 4, align="v") +
+  theme(plot.margin = margin(b = 15, l=15, unit = "pt"))
+
+combined_plot
+
+final_plot <- ggdraw(combined_plot) +
+  draw_label("Health Condition", x = 0.5, y=0.0, size = 14, vjust = -0.5) +
+  draw_label("Relative Abundance", x = 0, y = 0.5, angle = 90, size = 14, vjust = 1.5)
+
+final_plot
+
+pdf("combined_relative_abundance_plots.pdf", width=8, height=8)
+
+final_plot
+
+dev.off()
+```
+
+```{r}
+avg_ra<- dd_melt %>% 
+  group_by(OTU, Condition) %>%
+  summarise(MeanRelativeAbundance = mean(Abundance) * 100)
+
+avg_ra_1<- avg_ra[avg_ra$OTU == unique_asvs[1],]
+avg_ra_2<- avg_ra[avg_ra$OTU == unique_asvs[2],]
+avg_ra_3<- avg_ra[avg_ra$OTU == unique_asvs[3],]
+avg_ra_4<- avg_ra[avg_ra$OTU == unique_asvs[4],]
+avg_ra_5<- avg_ra[avg_ra$OTU == unique_asvs[5],]
+avg_ra_6<- avg_ra[avg_ra$OTU == unique_asvs[6],]
+avg_ra_7<- avg_ra[avg_ra$OTU == unique_asvs[7],]
+avg_ra_8<- avg_ra[avg_ra$OTU == unique_asvs[8],]
+avg_ra_9<- avg_ra[avg_ra$OTU == unique_asvs[9],]
+avg_ra_10<- avg_ra[avg_ra$OTU == unique_asvs[10],]
+avg_ra_11<- avg_ra[avg_ra$OTU == unique_asvs[11],]
+avg_ra_12<- avg_ra[avg_ra$OTU == unique_asvs[12],]
+avg_ra_13<- avg_ra[avg_ra$OTU == unique_asvs[13],]
+avg_ra_14<- avg_ra[avg_ra$OTU == unique_asvs[14],]
+avg_ra_15<- avg_ra[avg_ra$OTU == unique_asvs[15],]
+avg_ra_16<- avg_ra[avg_ra$OTU == unique_asvs[16],]
+avg_ra_17<- avg_ra[avg_ra$OTU == unique_asvs[17],]
+avg_ra_18<- avg_ra[avg_ra$OTU == unique_asvs[18],]
+avg_ra_19<- avg_ra[avg_ra$OTU == unique_asvs[19],]
+
+asv_pos_neg<- dd_melt %>% 
+  group_by(OTU, Condition) %>%
+  summarise(Positive = sum(Abundance > 0),
+    Negative = sum(Abundance == 0),
+    Total = n())
+
+asv_pos_neg_1<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[1],]
+asv_pos_neg_2<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[2],]
+asv_pos_neg_3<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[3],]
+asv_pos_neg_4<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[4],]
+asv_pos_neg_5<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[5],]
+asv_pos_neg_6<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[6],]
+asv_pos_neg_7<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[7],]
+asv_pos_neg_8<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[8],]
+asv_pos_neg_9<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[9],]
+asv_pos_neg_10<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[10],]
+asv_pos_neg_11<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[11],]
+asv_pos_neg_12<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[12],]
+asv_pos_neg_13<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[13],]
+asv_pos_neg_14<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[14],]
+asv_pos_neg_15<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[15],]
+asv_pos_neg_16<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[16],]
+asv_pos_neg_17<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[17],]
+asv_pos_neg_18<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[18],]
+asv_pos_neg_19<- asv_pos_neg[asv_pos_neg$OTU == unique_asvs[19],]
+
+```
+
+Now we will run an indicator species analysis
+
+```{r}
+library(indicspecies)
+set.seed(123)
+
+otu <- data.frame(otu_table(ps_f2_pruned))
+
+indic<- multipatt(otu, ps_f2_pruned@sam_data$Condition, control=how(nperm=999))
+summary(indic)
+
+DD_indicators<- indic$sign[indic$sign$s.DD == 1 & indic$sign$s.HD == 0 & indic$sign$s.HH == 0 & indic$sign$p.value < 0.05,]
+
+DD_indicators_sorted <- DD_indicators[order(DD_indicators$stat, decreasing = TRUE), ]
+
+DD_ind_asvs<- rownames(DD_indicators_sorted)
+
+dd_ind_asvs_w_tax<- ps_f2_pruned@tax_table[rownames(ps_f2_pruned@tax_table) %in% DD_ind_asvs,]
+
+dd_ind_asvs_w_tax<- as.data.frame(dd_ind_asvs_w_tax)
+dd_ind_asvs_w_tax_stats<- merge(DD_indicators_sorted, dd_ind_asvs_w_tax, by=0)
+dd_ind_asvs_w_tax_stats<- dd_ind_asvs_w_tax_stats[order(dd_ind_asvs_w_tax_stats$stat, decreasing = TRUE), ]
+rownames(dd_ind_asvs_w_tax_stats) <- dd_ind_asvs_w_tax_stats[, 1]  
+dd_ind_asvs_w_tax_stats <- dd_ind_asvs_w_tax_stats[, -1]  
+
+matching_names <- names(sequences)[sequences %in% rownames(dd_ind_asvs_w_tax_stats)]
+print(matching_names)
+dd_ind_asvs_w_tax_stats$ASV<- matching_names
+
+write.csv(dd_ind_asvs_w_tax, "diseased_indicator_species.csv")
+write.csv(dd_ind_asvs_w_tax_stats, "diseased_indicator_species_sorted.csv")
+
+top_5_dd_indics<- rownames(DD_indicators_sorted)[1:5]
+top_5_dd_indics_w_tax<- dd_ind_asvs_w_tax[rownames(dd_ind_asvs_w_tax) %in% top_5_dd_indics,]
+
+
+print(rownames(top_5_dd_indics_w_tax)[1])
+
+
+
+print(rownames(top_5_dd_indics_w_tax)[5])
+```
+
+We Now Need to Rarefy the Data to Account for Uneven Sampling Depth
+
+```{r}
+rarefied_ps <- rarefy_even_depth(ps_no_contam, sample.size = 1000)
+
+#Summarize rarefied phyloseq
+summarize_phyloseq(rarefied_ps)
+rarefied_ps
+```
+
+Beta Diversity with Rarefied Data
+
+```{r}
+#Beta Diversity Analyses
+#Write out filtered Dataset Table
+otu_ps_rare = as(otu_table(rarefied_ps), "matrix")
+taxon_ps_rare = as(tax_table(rarefied_ps), "matrix")
+samples_ps_rare<- as(sample_data(rarefied_ps), "matrix")
+# First, replace 0 values with an estimate (because normalization is taking log, can't have 0)
+# Also transposing here, need samples as rows
+d.czm <- cmultRepl(t(otu_ps_rare), method="CZM", label=0, z.warning = 0.999)
+# Perform the center-log-ratio (CLR) transformation 
+d.clr <- codaSeq.clr(d.czm)
+# transpose matrix of CLR transformed data for ordination and dendrogram
+E.clr <- t(d.clr)
+# plot compositional PCA biplot (perform a singular value decomposition)
+d.pcx <- prcomp(E.clr)
+# calculate percent variance explained for the axis labels
+pc1 <- round(d.pcx$sdev[1]^2/sum(d.pcx$sdev^2),2)
+pc2 <- round(d.pcx$sdev[2]^2/sum(d.pcx$sdev^2),2)
+xlab <- paste("PC1: ", pc1, sep="")
+ylab <- paste("PC2: ", pc2, sep="")
+#biplot(d.pcx, cex=c(0.6,0.4), var.axes=F,scale=1, xlab=xlab, ylab=ylab)
+summary(d.pcx)
+str(d.pcx)
+screeplot(d.pcx)
+
+# replot PCA with ggplot2 (showing samples only)
+df_out <- as.data.frame(d.pcx$x)
+
+palette2<- c("DD" = "#d1495b", "HD" = "#edae49", "HH" = "#00798c")
+
+metadata_ps_rare<- as.data.frame(samples_ps_rare)
+
+p<-ggplot(df_out,aes(x=PC1,y=PC2,fill=metadata_ps_rare$Condition, shape=metadata_ps_rare$Site))
+p<-p+geom_point( size=3.5)+
+  geom_text(aes(label = rownames(metadata_ps_rare)), vjust = 1.5, hjust = 0.5) +
+  theme(axis.title = element_text(size=14))+
+  theme(axis.text=element_text(size=12))+
+  theme(legend.title = element_text(size=14))+
+  theme(legend.text = element_text(size=12))+
+  theme(legend.position = "right")+
+  theme(legend.title = element_blank()) +
+  theme(legend.key.width = unit(1.0,  unit = "cm")) +
+  guides(fill = guide_legend(byrow = TRUE)) 
+p<- p+ labs(x=xlab, y=ylab, fill="Condition") + coord_fixed()+
+  labs(fill = "Condition", shape="Site")+
+  scale_shape_manual(values = c(21, 22, 23, 24, 25)) +
+  scale_fill_manual(values = palette2) +
+  theme_minimal() +
+  labs(x = "Principal Component 1: 30%", y = "Principal Component 2: 5%") +
+  theme(axis.text.x=element_text(colour="black"))+
+  theme(axis.text.y=element_text(colour="black"))
+p
+```
+
+Just to explore without the one outlier.....
+
+```{r}
+#Remove one outlier sample
+samples_to_remove<- "FLP73"
+
+rarefied_ps_no_73<- prune_samples(!(sample_names(rarefied_ps) %in% samples_to_remove), rarefied_ps)
+
+rarefied_ps_no_73
+
+#Beta Diversity Analyses
+#Write out filtered Dataset Table
+otu_ps_rare = as(otu_table(rarefied_ps_no_73), "matrix")
+taxon_ps_rare = as(tax_table(rarefied_ps_no_73), "matrix")
+samples_ps_rare<- as(sample_data(rarefied_ps_no_73), "matrix")
+# First, replace 0 values with an estimate (because normalization is taking log, can't have 0)
+# Also transposing here, need samples as rows
+d.czm <- cmultRepl(t(otu_ps_rare), method="CZM", label=0, z.warning = 0.999)
+# Perform the center-log-ratio (CLR) transformation 
+d.clr <- codaSeq.clr(d.czm)
+# transpose matrix of CLR transformed data for ordination and dendrogram
+E.clr <- t(d.clr)
+# plot compositional PCA biplot (perform a singular value decomposition)
+d.pcx <- prcomp(E.clr)
+# calculate percent variance explained for the axis labels
+pc1 <- round(d.pcx$sdev[1]^2/sum(d.pcx$sdev^2),2)
+pc2 <- round(d.pcx$sdev[2]^2/sum(d.pcx$sdev^2),2)
+xlab <- paste("PC1: ", pc1, sep="")
+ylab <- paste("PC2: ", pc2, sep="")
+#biplot(d.pcx, cex=c(0.6,0.4), var.axes=F,scale=1, xlab=xlab, ylab=ylab)
+summary(d.pcx)
+str(d.pcx)
+screeplot(d.pcx)
+
+# replot PCA with ggplot2 (showing samples only)
+df_out <- as.data.frame(d.pcx$x)
+
+palette2<- c("DD" = "#d1495b", "HD" = "#edae49", "HH" = "#00798c")
+
+metadata_ps_rare<- as.data.frame(samples_ps_rare)
+
+p<-ggplot(df_out,aes(x=PC1,y=PC2,fill=metadata_ps_rare$Condition, shape=metadata_ps_rare$Site))
+p<-p+geom_point( size=3.5)+
+  geom_text(aes(label = rownames(metadata_ps_rare)), vjust = 1.5, hjust = 0.5) +
+  theme(axis.title = element_text(size=14))+
+  theme(axis.text=element_text(size=12))+
+  theme(legend.title = element_text(size=14))+
+  theme(legend.text = element_text(size=12))+
+  theme(legend.position = "right")+
+  theme(legend.title = element_blank()) +
+  theme(legend.key.width = unit(1.0,  unit = "cm")) +
+  guides(fill = guide_legend(byrow = TRUE)) 
+p<- p+ labs(x=xlab, y=ylab, fill="Condition") + coord_fixed()+
+  labs(fill = "Condition", shape="Site")+
+  scale_shape_manual(values = c(21, 22, 23, 24, 25)) +
+  scale_fill_manual(values = palette2) +
+  theme_minimal() +
+  labs(x = "Principal Component 1: 30%", y = "Principal Component 2: 5%") +
+  theme(axis.text.x=element_text(colour="black"))+
+  theme(axis.text.y=element_text(colour="black"))
+p
+```
+
+```{r}
+otu_ps_rare = as(otu_table(rarefied_ps), "matrix")
+taxon_ps_rare = as(tax_table(rarefied_ps), "matrix")
+samples_ps_rare<- as(sample_data(rarefied_ps), "matrix")
+
+d.czm <- cmultRepl(t(otu_ps_rare), method="CZM", label=0, z.warning = 0.999)
+# Perform the center-log-ratio (CLR) transformation 
+d.clr <- codaSeq.clr(d.czm)
+# transpose matrix of CLR transformed data for ordination and dendrogram
+E.clr <- t(d.clr)
+# plot compositional PCA biplot (perform a singular value decomposition)
+d.pcx <- prcomp(E.clr)
+# calculate percent variance explained for the axis labels
+pc1 <- round(d.pcx$sdev[1]^2/sum(d.pcx$sdev^2),2)
+pc2 <- round(d.pcx$sdev[2]^2/sum(d.pcx$sdev^2),2)
+xlab <- paste("PC1: ", pc1, sep="")
+ylab <- paste("PC2: ", pc2, sep="")
+#biplot(d.pcx, cex=c(0.6,0.4), var.axes=F,scale=1, xlab=xlab, ylab=ylab)
+summary(d.pcx)
+str(d.pcx)
+screeplot(d.pcx)
+
+#Run the PERMANOVA w Site and Condition
+###################PERMANOVA#################
+dist.clr <- dist(E.clr)
+perm<-adonis2(dist.clr~Condition+Site,as(sample_data(rarefied_ps),"data.frame"))
+print(perm)
+
+write.table(perm, "permanova_results_rarefied.txt")
+
+### Beta Diversity Dispersions - Condition
+#calculate multivariate dispersions based on Condition
+metadata_ps_rare<- as.data.frame(samples_ps_rare)
+mod <-betadisper(dist.clr, metadata_ps_rare$Condition)
+#one way anova
+anova(mod)
+#boxplots
+pdf("beta_dispersion_condition_rarefied.pdf",width=8.5)
+plot(mod)
+dev.off()
+```
+
+```{r}
+## Compute mean distance to centroid per group
+#this just prints values on the console
+tapply(mod$distances, metadata_ps_rare$Condition, mean)
+## Same, but variance instead
+tapply(mod$distances, metadata_ps_rare$Condition, var)
+
+#Get the distances to centroid from the model
+mod$distances
+dis <- mod$distances
+#melt
+dis.melt <- melt(dis)
+#move rownames to columns so we can merge the dispersion values and metadata
+dis.melt$Sample <- rownames(dis.melt)
+samples$Sample <- rownames(samples)
+#merge metadata and dispersion 
+dis.condition <- merge(samples, dis.melt)
+#rename column
+colnames(dis.condition)[4] <- "distance"
+
+shapiro.test(dis.condition$distance) #Not normally distributed, use kruskal test
+distance.test<- kruskal.test(distance ~ Condition, data=dis.condition)
+print(distance.test)
+
+capture.output(distance.test,file="kruskal_distance_to_centroid_rarefied.txt")
+
+#Post Hoc Test
+library(FSA)
+dunnTest(distance ~ Condition,
+  data = dis.condition,
+  method = "bonferroni"
+)
+```
+
+```{r}
+#Create Violin plot for distance to centroid for rarefied data
+library(ggpubr)
+p2<-ggplot(dis.condition, aes(x=Condition, y=distance)) +
+  geom_violin(mapping =aes(x=Condition,y=distance, fill=Condition, color="black"), alpha = 0.6) +
+  geom_point(position=position_jitter(width=.1, height=0),aes(colour="black",fill=Condition),size=4, pch=21, colour = "black") +
+  scale_fill_manual(values = palette2) +
+  scale_color_manual(values = c( "black")) +
+  ylab("Distance to Centroid")+
+  xlab("Health Condition")+
+  guides(color="none") +
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(axis.text.x = element_text(colour="black"))+
+  theme(axis.text.y = element_text(colour="black"))+
+  theme(axis.text.x = element_text(size = 12))+
+  theme(axis.text.y = element_text(size = 12))+
+  theme(axis.title.x = element_text(size = 16))+
+  theme(axis.title.y = element_text(size = 16))+
+  theme(strip.text.x=element_text(size=16, face="bold"))+
+  theme(legend.position = "none") +
+  stat_compare_means(
+    comparisons = list(c("DD", "HH")),
+    method = "t.test",
+    label = "p.signif")
+p2
+```
+
+Now to redo the alpha diversity analyses....
+
+```{r}
+#Alpha Diversity Analyses
+#Statistical Test
+data_adiv<- estimate_richness(rarefied_ps, measures  = c("Shannon", "InvSimpson", "Observed"))
+shapiro.test(data_adiv$Shannon) #Not Normal
+shapiro.test(data_adiv$InvSimpson) #Not Normal
+shapiro.test(data_adiv$Observed) #Not Normal
+
+adiv_df<- as.data.frame(rarefied_ps@sam_data)
+adiv_df$Shannon<- data_adiv$Shannon 
+adiv_df$Simpson<- data_adiv$InvSimpson
+adiv_df$Observed<- data_adiv$Observed
+
+adiv_df<- as(sample_data(adiv_df), "matrix")
+adiv_df<- as.data.frame(adiv_df)
+kruskal.test(Shannon ~ Condition, data=adiv_df) #Not significant
+kruskal.test(Observed ~ Condition, data=adiv_df) #Not significant
+kruskal.test(Simpson ~ Condition, data=adiv_df) #not significant
+```
+
+```{r}
+pdf("Alpha_Div_Boxplot_Condition_Rarefied.pdf",width=8.25, height=6)
+richness<- plot_richness(rarefied_ps, x="Condition", measures=c("Shannon", "InvSimpson", "Observed"))
+richness$layers <- richness$layers[-1]
+richness + 
+  geom_boxplot( alpha = 0.6,  outlier.shape=NA, color="black", aes(fill = Condition))+
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  theme(strip.background =element_rect(fill="white"))+
+  theme(axis.text.x = element_text(colour="black"))+
+  theme(axis.text.y = element_text(colour="black"))+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1.1, vjust=1.1))+
+  theme(axis.text.x = element_text(size = 14))+
+  theme(axis.text.y = element_text(size = 14))+
+  theme(axis.title.x = element_text(size = 18))+
+  theme(axis.title.y = element_text(size = 18))+
+  theme(strip.text.x=element_text(size=16, face="bold"))+
+  theme(legend.title = element_text(size = 16, face = "bold"))+
+  theme(legend.text = element_text(size = 12)) +
+  labs(x="Condition") +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    panel.background = element_blank(),  # Remove panel background
+    axis.line = element_line(color = "black")  # Add axis lines
+  ) +
+  scale_fill_manual(values = palette2) 
+dev.off()
+```
+
+```{r}
+#Create Metacoder Plot
+library(metacoder)
+obj_rare = parse_phyloseq(rarefied_ps)
+
+obj_rare$data$otu_props <- calc_obs_props(obj_rare, "otu_table", cols = obj_rare$data$sample_data$sample_id)
+
+obj_rare$data$tax_abund <- calc_taxon_abund(obj_rare, "otu_props", cols = obj_rare$data$sample_data$sample_id)
+
+obj_rare$data$tax_mean_prop <- calc_group_mean(obj_rare, data = "tax_abund",
+                                          cols = obj_rare$data$sample_data$sample_id,
+                                          groups = "mean_prop")
+
+obj_rare %>% 
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>% # subset to the order rank
+  heat_tree(node_label = taxon_names,
+            node_size = mean_prop,
+            node_color = mean_prop,
+            initial_layout = "re", layout = "da",
+            output_file = "metacoder_plot_order_RA_Rarefied.pdf")
+```
+
+```{r}
+#Try to create a grid faceted by health condition
+library(gridExtra)
+obj_rare
+groups <- unique(sample_data(rarefied_ps)$Condition)
+
+my_plots <- lapply(c("HH", "HD", "DD"), function(g) {
+  # Create heat tree for each time point
+  set.seed(1) # For consistent layout
+  
+  x_subset <- filter_obs(obj_rare, obj_rare$data$sample_data$Condition==g)
+  
+  x_subset %>%
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>%
+     filter_obs(sample_data, Condition == "HH") %>%
+  heat_tree(node_label = taxon_names,
+            node_size = mean_prop,
+            node_color = mean_prop,
+            initial_layout = "re", layout = "da")
+})
+
+my_plots
+
+
+```
+
+```{r}
+#Is Vallitalea present?
+ps_f2_ra_valli<-subset_taxa(ps_f2_ra, Genus == "Vallitalea")
+ps_f2_ra_valli
+
+otu_table_valli <- as.data.frame(otu_table(ps_f2_ra_valli))
+samples_valli<- as.data.frame(sample_data(ps_f2_ra_valli))
+
+plot_data <- otu_table_valli %>%
+  rownames_to_column("Sample") %>%
+  pivot_longer(cols = -Sample, names_to = "ASV", values_to = "Abundance")
+
+plot_metadata<- cbind(Sample = rownames(samples_valli), samples_valli)
+rownames(plot_metadata) <- NULL
+
+valli_plot<- merge(plot_data, plot_metadata, by ="Sample")
+
+new_labels <- c("TACGTAGGGGGCAAGCGTTATCCGGATTTACTGGGTGTAAAGGGTGCGTAGGCGGCGAAGTAAGTCAGATGTGAAAGCCCGAGGCTCAACCTCGGGACTGCATTTGAAACTGCTTTGCTAGAGTGCAGGAGAGGAAAGCGGAATTCCTAGTGTAGCGGTGAAATGCGTAGATATTAGGAGGAACACCAGTGGCGAAGGCGGCTTTCTGGACTGTAACTGACGCTGAGGCACGAAAGCGTGGGGAGCGAACAGG" = "Vallitalea ASV1", "TACGTAGGGGGCAAGCGTTATCCGGATTTACTGGGTGTAAAGGGTGCGTAGGCGGCTAGGTAAGTCAGATGTGAAAGCCCGAGGCTCAACCTCGGGACTGCATTTGAAACTGCTTAGCTAGAGTGCAGGAGAGGAAAGTGGAATTCCTAGTGTAGCGGTGAAATGCGTAGATATTAGGAGGAACACCAGTGGCGAAGGCGACTTTCTGGACTGTAACTGACGCTGAGGCACGAAAGCGTGGGGAGCGAACAGG" = "Vallitalea ASV 2")
+
+ggplot(valli_plot, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6) +
+  geom_jitter(shape = 21, width = 0.2) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Health Condition", y = "Relative Abundance", fill = "Condition") +
+  scale_y_continuous(labels = scales::percent) +
+  facet_grid(~ASV, labeller = labeller(ASV = new_labels)) + 
+  scale_fill_manual(values = palette2)
+
+```
+
+```{r}
+#Is Wukongibacter present?
+ps_f2_ra
+ps_f2_ra_wuko<-subset_taxa(ps_f2_ra, Genus == "Wukongibacter")
+#No Wukongibacter present in dataset
+
+```
+
+```{r}
+#What about Clostridium sensu stricto 1?
+ps_f2_ra_clost<-subset_taxa(ps_f2_ra, Genus == "Clostridium sensu stricto 1")
+ps_f2_ra_clost
+
+rownames(ps_f2_ra_clost@tax_table)
+
+otu_table_valli <- as.data.frame(otu_table(ps_f2_ra_valli))
+samples_valli<- as.data.frame(sample_data(ps_f2_ra_valli))
+```
+
+```{r}
+length(unique(rownames(samples)))
+```
+
+Given that there are certain indicators of SCTLD in Unaffected tissue from diseased colonies, it should be worth doing another analysis between HD and HH samples, as well as HD and DD.
+
+```{r}
+ps_f2
+
+#Need to subset samples by the health conditions
+ps_f2_HH_HD<- subset_samples(ps_f2, Condition == "HH" | Condition == "HD")
+ps_f2_HH_HD
+
+ps_f2_HH_HD_pruned <- prune_taxa(taxa_sums(ps_f2_HH_HD) > 0, ps_f2_HH_HD)
+ps_f2_HH_HD_pruned #1119 ASVs
+
+# Define the order of the conditions for testing
+# In this order, the positive fold change values are increased in Unaffected Tissue
+sample_data(ps_f2_HH_HD_pruned)$Condition<-factor(sample_data(ps_f2_HH_HD_pruned)$Condition,levels=c("HH","HD"))
+head(sample_data(ps_f2_HH_HD_pruned)$Condition, 10)
+
+# DESEQ2 analysis on Dcyl Samples
+dds = phyloseq_to_deseq2(ps_f2_HH_HD_pruned, ~ Condition)
+dds
+#filter rows with very few counts
+dds <- dds[ rowSums(counts(dds)) > 5, ]
+cts <- counts(dds)
+geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+dds <- DESeq(dds,test="Wald", fitType="parametric")
+res = results(dds, cooksCutoff = FALSE)
+alpha = 0.05
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ps)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+dim(sigtab)
+```
+
+THere are no significantly different ASVs between HH and HD using the filtered phyloseq object. How about the unfiltered phyloseq object?
+
+```{r}
+ps
+
+#Need to subset samples by the health conditions
+ps_HH_HD<- subset_samples(ps, Condition == "HH" | Condition == "HD")
+ps_HH_HD
+
+ps_HH_HD_pruned <- prune_taxa(taxa_sums(ps_HH_HD) > 0, ps_HH_HD)
+ps_HH_HD_pruned #3941 ASVs
+
+# Define the order of the conditions for testing
+# In this order, the positive fold change values are increased in Unaffected Tissue
+sample_data(ps_HH_HD_pruned)$Condition<-factor(sample_data(ps_HH_HD_pruned)$Condition,levels=c("HH","HD"))
+head(sample_data(ps_HH_HD_pruned)$Condition, 10)
+
+# DESEQ2 analysis on Dcyl Samples
+dds = phyloseq_to_deseq2(ps_HH_HD_pruned, ~ Condition)
+dds
+#filter rows with very few counts
+dds <- dds[ rowSums(counts(dds)) > 5, ]
+cts <- counts(dds)
+geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+dds <- DESeq(dds,test="Wald", fitType="parametric")
+res = results(dds, cooksCutoff = FALSE)
+alpha = 0.05
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ps)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+dim(sigtab)
+
+#Still no significantly different ASVs when using unfiltered dataset
+#This isn't unexpected, given the HH and HD samples were not significantly different from each other in the beta diversity dispersions
+```
+
+#Let's try it again but looking at the HD and DD samples
+
+```{r}
+ps
+
+#Need to subset samples by the health conditions
+ps_DD_HD<- subset_samples(ps, Condition == "DD" | Condition == "HD")
+ps_DD_HD
+
+ps_DD_HD_pruned <- prune_taxa(taxa_sums(ps_DD_HD) > 0, ps_DD_HD)
+ps_DD_HD_pruned #4195 ASVs
+
+# Define the order of the conditions for testing
+# In this order, the positive fold change values are increased in Diseased Tissue
+sample_data(ps_DD_HD_pruned)$Condition<-factor(sample_data(ps_DD_HD_pruned)$Condition,levels=c("HD","DD"))
+head(sample_data(ps_DD_HD_pruned)$Condition, 10)
+
+# DESEQ2 analysis on Dcyl Samples
+dds = phyloseq_to_deseq2(ps_DD_HD_pruned, ~ Condition)
+dds
+#filter rows with very few counts
+dds <- dds[ rowSums(counts(dds)) > 5, ]
+cts <- counts(dds)
+geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+dds <- DESeq(dds,test="Wald", fitType="parametric")
+res = results(dds, cooksCutoff = FALSE)
+alpha = 0.05
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ps)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+dim(sigtab)
+
+#save table of results
+sig = as(sigtab, "matrix")
+write.table(sig,"DESeq2_results_ASV_HD_DD.txt",sep="\t",col.names=NA)
+sig_dif<- read.table("DESeq2_results_ASV_HD_DD.txt", header = TRUE)
+colnames(sig_dif)[1]<- "ASV"
+
+#Count how many phyla
+print(unique(sig_dif$Phylum))
+
+cols <- c("Proteobacteria"="#003049", "Bdellovibrionota"="#d62828", "Bacteroidota" = "#f77f00", "Firmicutes" = "#fcbf49", "Verrucomicrobiota" = "#eae2b7", "Campylobacterota" = "#0a9396")
+
+flavo<- sig_dif[sig_dif$Family=="Flavobacteriaceae",]
+flavo$ASV
+
+rickett<- sig_dif[sig_dif$Family=="Rickettsiales",]
+rickett$ASV
+
+vibrio<- sig_dif[sig_dif$Genus=="Vibrio",]
+vibrio$ASV
+
+#Create Figure for Significantly Different Taxa
+pdf("FigureDEtaxa_ASV_HD_DD.pdf",width=8,height=6)
+p1 <- ggplot(sig_dif,aes(log2FoldChange,Genus,fill=Phylum))+
+  geom_point(size=7, shape=21)+
+  geom_errorbarh(aes(xmin=log2FoldChange-lfcSE, xmax=log2FoldChange+lfcSE),height=0.2)+
+  scale_fill_manual(values=cols)+
+  theme(plot.title = element_text(face="italic"))+
+  labs(y= "Taxonomic Order")+
+  theme(axis.title=element_text(size=14))+
+  theme(legend.text=element_text(size=14))+
+  theme(legend.title=element_text(size=16))+
+  theme(axis.text=element_text(size=14, color="black"))+
+  theme(legend.position = "right")+
+  geom_vline(xintercept=0, linetype="dashed") +
+  theme(panel.grid = element_blank()) +
+  theme(panel.background = element_blank())
+p1
+dev.off()
+```
+
+Are any of these present in the blast hits?
+
+```{r}
+sequence_matches<- sig_dif[sig_dif$ASV %in% sequence_blast_hits,]
+sequence_matches<- tidy_blast_100_no_repeats[tidy_blast_100_no_repeats$sequence %in% sig_dif$ASV,]
+```
+
+Now to include more of the differentially abundant ASVs between diseased and unaffected tissue
+
+```{r}
+#Subset by ASV
+samples_to_remove <- c("DEPBlank3-14-24", "DEPBlank3-6-24")
+ps_f2_pruned <- prune_samples(!(sample_names(ps_f2) %in% samples_to_remove), ps_f2)
+
+ps_f2_pruned
+
+ps_f2_ra <- transform_sample_counts(ps_f2_pruned, function(OTU) OTU/sum(OTU))
+
+dd_enriched_2 <- subset_taxa(ps_f2_ra, row.names(ps_f2_ra@tax_table) %in% sequence_matches$sequence)
+
+dd_melt_2 <- psmelt(dd_enriched_2)
+
+dd_melt_halarco<- dd_melt[dd_melt$OTU == sequence_matches$sequence[1],]
+
+
+ggplot(dd_melt_halarco, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) 
+
+avg_ra<- dd_melt_2 %>% 
+  group_by(OTU, Condition) %>%
+  summarise(MeanRelativeAbundance = mean(Abundance) * 100)
+
+avg_ra_1<- avg_ra[avg_ra$OTU == sequence_matches$sequence[1],]
+
+asv_pos_neg<- dd_melt_2 %>% 
+  group_by(OTU, Condition) %>%
+  summarise(Positive = sum(Abundance > 0),
+    Negative = sum(Abundance == 0),
+    Total = n())
+
+asv_pos_neg_1<- asv_pos_neg[asv_pos_neg$OTU == sequence_matches$sequence[1],]
+
+```
+
+```{r}
+dd_melt_plankto<- dd_melt[dd_melt$OTU == sequence_matches$sequence[3],]
+
+
+ggplot(dd_melt_plankto, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) 
+
+avg_ra_3<- avg_ra[avg_ra$OTU == sequence_matches$sequence[3],]
+
+asv_pos_neg_3<- asv_pos_neg[asv_pos_neg$OTU == sequence_matches$sequence[3],]
+```
+
+What's Highest Relative Abundance in Healthy Tissue?
+
+```{r}
+#ASV Level
+
+ps_f2_ra
+
+ps_f2_ra_hh<- subset_samples(ps_f2_ra, Condition=="HH")
+
+hh_melt <- psmelt(ps_f2_ra_hh)
+
+avg_ra_hh<- hh_melt %>% 
+  group_by(OTU, Condition) %>%
+  summarise(MeanRelativeAbundance = mean(Abundance) * 100)
+
+avg_ra_hh_w_tax<- merge(avg_ra_hh, hh_melt, by = "OTU")
+
+avg_ra_hh_w_tax_sorted<- avg_ra_hh_w_tax[order(avg_ra_hh_w_tax$MeanRelativeAbundance, decreasing = TRUE), ] 
+
+avg_ra_hh_w_tax_sorted<-avg_ra_hh_w_tax_sorted[avg_ra_hh_w_tax_sorted$MeanRelativeAbundance > 0,]
+
+length(unique(avg_ra_hh_w_tax_sorted$OTU))
+```
+
+What's highest relative abundance in Diseased Tissue?
+
+```{r}
+#ASV Level
+
+ps_f2_ra
+
+ps_f2_ra_dd<- subset_samples(ps_f2_ra, Condition=="DD")
+
+dd_melt <- psmelt(ps_f2_ra_dd)
+
+avg_ra_dd<- dd_melt %>% 
+  group_by(OTU, Condition) %>%
+  summarise(MeanRelativeAbundance = mean(Abundance) * 100)
+
+avg_ra_dd_w_tax<- merge(avg_ra_dd, dd_melt, by = "OTU")
+
+avg_ra_dd_w_tax_sorted<- avg_ra_dd_w_tax[order(avg_ra_dd_w_tax$MeanRelativeAbundance, decreasing = TRUE), ] 
+
+avg_ra_dd_w_tax_sorted<-avg_ra_dd_w_tax_sorted[avg_ra_dd_w_tax_sorted$MeanRelativeAbundance > 0,]
+
+length(unique(avg_ra_dd_w_tax_sorted$OTU))
+```
+
+###Let's Rerun our DESeq2 Results with the filtered dataset
+
+```{r}
+###Order level agglomeration
+ps_f2
+ps_f2_order<- tax_glom(ps_f2, taxrank = "Order")
+ps_f2_order
+
+#Need to Glom the taxa
+ps_f2_order_HH_DD<- subset_samples(ps_f2_order, Condition == "HH" | Condition == "DD")
+ps_f2_order_HH_DD
+
+ps_f2_order_HH_DD_pruned <- prune_taxa(taxa_sums(ps_f2_order_HH_DD) > 0, ps_f2_order_HH_DD)
+ps_f2_order_HH_DD_pruned #139 Orders
+
+# Define the order of the conditions for testing
+# In this order, the positive fold change values are increased in Diseased Tissue
+sample_data(ps_f2_order_HH_DD_pruned)$Condition<-factor(sample_data(ps_f2_order_HH_DD_pruned)$Condition,levels=c("HH","DD"))
+head(sample_data(ps_f2_order_HH_DD_pruned)$Condition, 10)
+
+# DESEQ2 analysis on Dcyl Samples
+dds = phyloseq_to_deseq2(ps_f2_order_HH_DD_pruned, ~ Condition)
+dds
+#filter rows with very few counts
+dds <- dds[ rowSums(counts(dds)) > 5, ]
+cts <- counts(dds)
+geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+dds <- DESeq(dds,test="Wald", fitType="parametric")
+res = results(dds, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ps)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+dim(sigtab)
+#save table of results
+sig = as(sigtab, "matrix")
+write.table(sig,"DESeq2_results_Order.txt",sep="\t",col.names=NA)
+sig_dif<- read.table("DESeq2_results_Order.txt", header = TRUE)
+colnames(sig_dif)[1]<- "ASV"
+
+#Count how many phyla
+print(unique(sig_dif$Order))
+
+cols <- c("Rhodobacterales"="#003049", "Oligoflexales"="#d62828", "Flavobacteriales" = "#f77f00", "Mycoplasmatales" = "#fcbf49", "Verrucomicrobiales" = "#eae2b7", "Pseudomonadales" = "#287271", "Peptostreptococcales-Tissierellales" = "#ef476f", "Rickettsiales" = "#118ab2", "Gracilibacteria" = "#06d6a0", "Bacteroidales" = "#83d483")
+
+
+#Create Figure for Significantly Different Taxa
+pdf("FigureDEtaxa_Order.pdf",width=8,height=6)
+p1 <- ggplot(sig_dif,aes(log2FoldChange,Order,fill=Order))+
+  geom_point(size=7, shape=21)+
+  geom_errorbarh(aes(xmin=log2FoldChange-lfcSE, xmax=log2FoldChange+lfcSE),height=0.2)+
+  scale_fill_manual(values=cols)+
+  theme(plot.title = element_text(face="italic"))+
+  labs(y= "Taxonomic Order")+
+  theme(axis.title=element_text(size=14))+
+  theme(legend.text=element_text(size=14))+
+  theme(legend.title=element_text(size=16))+
+  theme(axis.text=element_text(size=14, color="black"))+
+  theme(legend.position = "right")+
+  geom_vline(xintercept=0, linetype="dashed") +
+  theme(panel.grid = element_blank()) +
+  theme(panel.background = element_blank()) + 
+  theme(legend.position = "none")
+p1
+dev.off()
+```
+
+```{r}
+ps_f2
+ps_f2_HH_DD<- subset_samples(ps_f2, Condition == "HH" | Condition == "DD")
+ps_f2_HH_DD
+
+ps_f2_HH_DD_pruned <- prune_taxa(taxa_sums(ps_f2_HH_DD) > 0, ps_f2_HH_DD)
+ps_f2_HH_DD_pruned
+
+# Define the order of the conditions for testing
+# In this order, the positive fold change values are increased in Diseased Tissue
+sample_data(ps_f2_HH_DD_pruned)$Condition<-factor(sample_data(ps_f2_HH_DD_pruned)$Condition,levels=c("HH","DD"))
+head(sample_data(ps_f2_HH_DD_pruned)$Condition, 10)
+
+# DESEQ2 analysis on Dcyl Samples
+dds = phyloseq_to_deseq2(ps_f2_HH_DD_pruned, ~ Condition)
+dds
+#filter rows with very few counts
+dds <- dds[ rowSums(counts(dds)) > 5, ]
+cts <- counts(dds)
+geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+dds <- DESeq(dds,test="Wald", fitType="parametric")
+res = results(dds, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ps)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+dim(sigtab)
+#save table of results
+sig = as(sigtab, "matrix")
+write.table(sig,"DESeq2_results.txt",sep="\t",col.names=NA)
+sig_dif_hh_dd<- read.table("DESeq2_results.txt", header = TRUE)
+colnames(sig_dif_hh_dd)[1]<- "ASV"
+
+#Count how many orders
+orders<-unique(sig_dif_hh_dd$Order)
+print(orders)
+
+cols <- c("Rhodobacterales"="#003049", "Oligoflexales"="#d62828", "Flavobacteriales" = "#f77f00", "Mycoplasmatales" = "#fcbf49", "Verrucomicrobiales" = "#eae2b7", "Enterobacterales" = "#c8553d", "Micavibrionales" = "#588b8b", "Campylobacterales" = "#bc6c25")
+
+
+#Create Figure for Significantly Different Taxa
+pdf("FigureDEtaxa.pdf",width=11,height=8)
+p1 <- ggplot(sig_dif_hh_dd,aes(log2FoldChange,Genus,fill=Order))+
+  geom_point(size=5, shape=21)+
+  geom_errorbarh(aes(xmin=log2FoldChange-lfcSE, xmax=log2FoldChange+lfcSE),height=0.2)+
+  scale_fill_manual(values=cols)+
+  theme(plot.title = element_text(face="italic"))+
+  labs(y= "Lowest Taxonomic Assignment")+
+  theme(axis.title=element_text(size=14))+
+  theme(legend.text=element_text(size=14))+
+  theme(legend.title=element_text(size=16))+
+  theme(axis.text=element_text(size=14, color="black"))+
+  theme(legend.position = "right")+
+  geom_vline(xintercept=0, linetype="dashed") +
+  theme(panel.grid = element_blank()) +
+  theme(panel.background = element_blank()) +
+  scale_x_continuous(limits = c(-5, 30)) +
+  scale_y_discrete(limits= c("Vibrionaceae", "Vibrio", "Thalassobius", "Tenacibaculum", "Ruegeria", "Rubritalea","Rhodobacteraceae", "Pseudobacteriovorax", "Mycoplasma","Micavibrionaceae", "Halarcobacter", "Ferrimonas", "Cryomorphaceae", "Cribrihabitans", "Aurantivirga"),
+                   labels= c("Vibrionaceae", expression(italic("Vibrio")), expression(italic("Thalassobius")), 
+                             expression(italic("Tenacibaculum")), 
+                             expression(italic("Ruegeria")), expression(italic("Rubritalea")), "Rhodobacteraceae",
+                             expression(italic("Pseudobacteriovorax")),
+                             expression(italic("Mycoplasma")),
+                             "Micavibrionaceae", expression(italic("Halarcobacter")), 
+                             expression(italic("Ferrimonas")), "Cryomorphaceae",
+                             expression(italic("Cribrihabitans")), 
+                            expression(italic("Aurantivirga"))))
+p1
+dev.off()
+```
+
+Let's redo the relative abundance plots to include those that are considered differentialy abundant in the filtered dataset.
+
+### Differential Abundance with ps_f2 between DD and HD
+
+```{r}
+ps_f2
+ps_f2_HD_DD<- subset_samples(ps_f2, Condition == "HD" | Condition == "DD")
+ps_f2_HD_DD
+
+ps_f2_HD_DD_pruned <- prune_taxa(taxa_sums(ps_f2_HD_DD) > 0, ps_f2_HD_DD)
+ps_f2_HD_DD_pruned
+
+# Define the order of the conditions for testing
+# In this order, the positive fold change values are increased in Diseased Tissue
+sample_data(ps_f2_HD_DD_pruned)$Condition<-factor(sample_data(ps_f2_HD_DD_pruned)$Condition,levels=c("HD","DD"))
+head(sample_data(ps_f2_HD_DD_pruned)$Condition, 10)
+
+# DESEQ2 analysis on Dcyl Samples
+dds = phyloseq_to_deseq2(ps_f2_HD_DD_pruned, ~ Condition)
+dds
+#filter rows with very few counts
+dds <- dds[ rowSums(counts(dds)) > 5, ]
+cts <- counts(dds)
+geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+dds <- DESeq(dds,test="Wald", fitType="parametric")
+res = results(dds, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ps)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+dim(sigtab)
+#save table of results
+sig = as(sigtab, "matrix")
+write.table(sig,"DESeq2_results_HD_DD.txt",sep="\t",col.names=NA)
+sig_dif_hd_dd<- read.table("DESeq2_results_HD_DD.txt", header = TRUE)
+colnames(sig_dif_hd_dd)[1]<- "ASV"
+
+unique_rows <- sig_dif_hd_dd[!sig_dif_hd_dd$ASV %in% sig_dif_hh_dd$ASV, ]
+```
+
+```{r}
+#Make A Relative Abundance Plot for Differentially ABundant ASVs
+sig_dif_hh_dd_asvs<- sig_dif_hh_dd$ASV
+
+dd_enriched <- subset_taxa(ps_f2_ra, row.names(ps_f2_ra@tax_table) %in% sig_dif_hh_dd_asvs)
+
+dd_enriched
+
+dd_melt <- psmelt(dd_enriched)
+
+palette2<- c("DD" = "#d1495b", "HD" = "#edae49", "HH" = "#00798c")
+
+new_labels <- setNames(dd_melt$Genus, dd_melt$OTU)
+
+unique_asvs<- unique(dd_melt$OTU)
+
+ggplot(dd_melt, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot() +
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black"))
+```
+
+```{r}
+dd_melt_1<- dd_melt[dd_melt$OTU == unique_asvs[1],]
+
+
+dd_plot_1<- ggplot(dd_melt_1, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_1
+```
+
+```{r}
+dd_melt_2<- dd_melt[dd_melt$OTU == unique_asvs[2],]
+
+
+dd_plot_2<- ggplot(dd_melt_2, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_2
+```
+
+```{r}
+dd_melt_3<- dd_melt[dd_melt$OTU == unique_asvs[3],]
+
+
+dd_plot_3<- ggplot(dd_melt_3, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_3
+```
+
+```{r}
+dd_melt_4<- dd_melt[dd_melt$OTU == unique_asvs[4],]
+
+
+dd_plot_4<- ggplot(dd_melt_4, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_4
+```
+
+```{r}
+dd_melt_5<- dd_melt[dd_melt$OTU == unique_asvs[5],]
+
+
+dd_plot_5<- ggplot(dd_melt_5, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_5
+```
+
+```{r}
+dd_melt_6<- dd_melt[dd_melt$OTU == unique_asvs[6],]
+
+
+dd_plot_6<- ggplot(dd_melt_6, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_6
+```
+
+```{r}
+dd_melt_7<- dd_melt[dd_melt$OTU == unique_asvs[7],]
+
+
+dd_plot_7<- ggplot(dd_melt_7, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_7
+```
+
+```{r}
+dd_melt_8<- dd_melt[dd_melt$OTU == unique_asvs[8],]
+
+custom_labels <- c("TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATTGGAAAGTTGGGGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTTCAAAACTCCCAGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG" = "Cribrihabitans ASV21")
+
+
+dd_plot_8<- ggplot(dd_melt_8, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_8
+```
+
+```{r}
+dd_melt_9<- dd_melt[dd_melt$OTU == unique_asvs[9],]
+
+custom_labels <- c("TACGGAGGGTGCGAGCGTTAATCGGAATCACTGGGCGTAAAGCGCATGCAGGCGGTTTGCTAAGCGAGATGTGAAAGCCCCGGGCTTAACCTGGGAACTGCATTTCGAACTGGCGAACTAGAGTCTTGTAGAGGGGGGTAGAATTTCAGGTGTAGCGGTGAAATGCGTAGAGATCTGAAGGAATACCAGTGGCGAAGGCGGCCCCCTGGACAAAGACTGACGCTCAGATGCGAAAGCGTGGGGAGCAAACAGG" = "Ferrimonas ASV64")
+
+
+dd_plot_9<- ggplot(dd_melt_9, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_9
+```
+
+```{r}
+dd_melt_10<- dd_melt[dd_melt$OTU == unique_asvs[10],]
+
+
+dd_plot_10<- ggplot(dd_melt_10, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_10
+```
+
+```{r}
+dd_melt_11<- dd_melt[dd_melt$OTU == unique_asvs[11],]
+
+
+dd_plot_11<- ggplot(dd_melt_11, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_11
+```
+
+```{r}
+dd_melt_12<- dd_melt[dd_melt$OTU == unique_asvs[12],]
+
+
+dd_plot_12<- ggplot(dd_melt_12, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_12
+```
+
+```{r}
+dd_melt_13<- dd_melt[dd_melt$OTU == unique_asvs[13],]
+
+
+dd_plot_13<- ggplot(dd_melt_13, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_13
+```
+
+```{r}
+dd_melt_14<- dd_melt[dd_melt$OTU == unique_asvs[14],]
+
+custom_labels <- c("TACGGAGGGTGCAAGCGTTATCCGGAATCATTGGGTTTAAAGGGTCCGCAGGCGGTCAATTAAGTCAGAGGTGAAATCCCATAGCTTAACTATGGAACTGCCTTTGATACTGGTTGACTTGAGTTATACGGAAGTAGATAGAATAAGTAGTGTAGCGGTGAAATGCATAGATATTACTTAGAATACCGATTGCGAAGGCAGTCTACTACGTATATACTGACGCTCATGGACGAAAGCGTGGGGAGCGAACAGG" = "Aurantivirga ASV123")
+
+
+dd_plot_14<- ggplot(dd_melt_14, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_14
+```
+
+```{r}
+dd_melt_15<- dd_melt[dd_melt$OTU == unique_asvs[15],]
+
+custom_labels <- c("TACATAGGCCCCAAGCGTTATCCGGATTTACTGGGCGTAAAGAGTGCGCAGGTGATTTCACAAGTCTGTATTGAAAGGCTGGAGCTCAACTCCAGTTTGGTATGGAAACTGTGTTATTAGATTATGATAGAGGTTAGCGGAATTCCTAATGTAGCGGTGGAATGCGTAGATATTAGGAGGAACACCAAAAGCGAAGGCAGCTAACTGGGTCATTAATGACACTGGTGCACGAAAGCGTGGGGAGCAAACAGG" = "Mycoplasma ASV80")
+
+
+dd_plot_15<- ggplot(dd_melt_15, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_15
+```
+
+```{r}
+dd_melt_16<- dd_melt[dd_melt$OTU == unique_asvs[16],]
+
+
+dd_plot_16<- ggplot(dd_melt_16, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_16
+```
+
+```{r}
+dd_melt_17<- dd_melt[dd_melt$OTU == unique_asvs[17],]
+
+
+dd_plot_17<- ggplot(dd_melt_17, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_17
+```
+
+```{r}
+dd_melt_18<- dd_melt[dd_melt$OTU == unique_asvs[18],]
+
+
+dd_plot_18<- ggplot(dd_melt_18, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = new_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_18
+```
+
+```{r}
+dd_melt_19<- dd_melt[dd_melt$OTU == unique_asvs[19],]
+
+custom_labels <- c("TACTGGGGGAGCGAGCGTTGTTCGGAATCACTGGGCGTAAAGCGTGCGCAGGCGGTTTGGAAAGTCAGAAGTGAAATCCCAGAGCTCAACTCTGGAACTGCTTTTGAAACTTCCTTACTAGAGTTTGGTAGAGGTTGGGAGAATTCCTAGTGTAGAGGTGAAATTCGTAGATATTAGGAGGAATACCAGTGGCGTAGGCGCCCAACTGGACCATTACTGACGCTCAGGCACGAAAGCGTGGGGAGCAAACAGG" = "Micavibrionaceae ASV158")
+
+
+dd_plot_19<- ggplot(dd_melt_19, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_19
+```
+
+```{r}
+library(cowplot)
+
+combined_plot<- plot_grid(dd_plot_1, dd_plot_2, dd_plot_3, dd_plot_4, dd_plot_5, dd_plot_6, dd_plot_7, dd_plot_8, dd_plot_9, dd_plot_10, dd_plot_11, dd_plot_12, dd_plot_13, dd_plot_14, dd_plot_15, dd_plot_16, dd_plot_17, dd_plot_18, dd_plot_19, ncol=4, nrow = 5, align="v") +
+  theme(plot.margin = margin(b = 15, l=15, unit = "pt"))
+
+combined_plot
+
+final_plot <- ggdraw(combined_plot) +
+  draw_label("Health Condition", x = 0.5, y=0.0, size = 14, vjust = -0.5) +
+  draw_label("Relative Abundance", x = 0, y = 0.5, angle = 90, size = 14, vjust = 1.5)
+
+final_plot
+
+pdf("combined_relative_abundance_plots_updated.pdf", width=8, height=8)
+final_plot
+dev.off()
+```
+
+Since we redid the DESeq2 results, let's now recheck if any of these match with the Blast matches
+
+```{r}
+common_asvs<- intersect(iden_seqs, sig_dif_asvs)
+
+#Can we get Taxonomy for these matches?
+
+sequence_matches<- sequences[names(sequences) %in% tidy_blast_100$qseqid]
+
+tax<- as.data.frame(ps_f2@tax_table)
+tax_of_matches<- tax[rownames(tax) %in% sequence_matches,]
+
+tax_of_common_asvs<- tax_of_matches[rownames(tax_of_matches) %in% common_asvs,]
+```
+
+Now let's figure out which ASVs were the same between the DESeq2, the BLAST, and the indicator analysis.
+
+```{r}
+asvs_shared<- tax_of_common_asvs[rownames(tax_of_common_asvs) %in% rownames(dd_ind_asvs_w_tax),]
+
+#How many of the indicator species are considered differentially enriched by DESeq2?
+length(sig_dif_asvs)
+asvs_indics_enriched<- sig_dif_asvs[rownames(dd_ind_asvs_w_tax) %in% sig_dif_asvs]
+
+#13 differentially enriched taxa were indicators of FLP
+
+dd_melt_shared<- dd_melt[dd_melt$OTU %in% asvs_indics_enriched,]
+dd_melt_shared<- dd_melt_shared[dd_melt_shared$OTU %in% common_asvs,]
+
+length(unique(dd_melt_shared$OTU))
+```
+
+OK that got a little confusing, let's try this again
+
+```{r}
+indic_asvs<- rownames(dd_ind_asvs_w_tax)
+enriched_asvs<- sig_dif_asvs
+blast_asvs<- tidy_blast_100_no_repeats$sequence
+
+shared_asvs<- intersect(intersect(indic_asvs, enriched_asvs), blast_asvs)
+
+tax<- as.data.frame(ps_f2@tax_table)
+tax_of_shared<- tax[rownames(tax) %in% shared_asvs,]
+  
+  # Remove specific samples
+samples_to_remove <- c("DEPBlank3-14-24", "DEPBlank3-6-24")
+ps_f2_pruned <- prune_samples(!(sample_names(ps_f2) %in% samples_to_remove), ps_f2)
+
+ps_f2_pruned
+
+ps_f2_ra <- transform_sample_counts(ps_f2_pruned, function(OTU) OTU/sum(OTU))
+
+f2_pruned_ra_shared <- subset_taxa(ps_f2_ra, row.names(ps_f2_ra@tax_table) %in% shared_asvs)
+
+f2_pruned_ra_shared
+
+dd_melt_shared <- psmelt(f2_pruned_ra_shared)
+
+palette2<- c("DD" = "#d1495b", "HD" = "#edae49", "HH" = "#00798c")
+
+new_labels <- setNames(dd_melt_shared$Genus, dd_melt_shared$OTU)
+
+unique_asvs<- unique(dd_melt_shared$OTU)
+```
+
+Let's only do relative abundance plots of the four ASVs.
+
+```{r}
+dd_melt_shared_1<- dd_melt_shared[dd_melt_shared$OTU == unique_asvs[1],]
+print(unique_asvs[1])
+
+custom_labels <- c("TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATTAGTAAGTTAGAGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTTTAATACTGCTAGTCTTGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG" = "Thalassobius ASV36")
+
+dd_plot_shared_1<- ggplot(dd_melt_shared_1, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_shared_1
+```
+
+```{r}
+dd_melt_shared_2<- dd_melt_shared[dd_melt_shared$OTU == unique_asvs[2],]
+
+print(unique_asvs[2])
+
+custom_labels <- c("TACGGAGGGTGCAAGCGTTACTCGGAATCACTGGGCGTAAAGAGCGTGTAGGCGGGTTAATAAGTCAGATGTGAAAGCCTATGGCTCAACCATAGAACTGCATTTGAAACTGTTAACCTAGAATATGGGAGAGGTAGATGGAATTTCTGGTGTAGGGGTAAAATCCGTAGAGATCAGAAGGAATACCGATTGCGAAGGCGATCTACTGGAACATTATTGACGCTGAGACGCGAAAGCGTGGGGAGCAAACAGG" = "Halarcobacter ASV25")
+
+
+dd_plot_shared_2<- ggplot(dd_melt_shared_2, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_shared_2
+```
+
+```{r}
+dd_melt_shared_3<- dd_melt_shared[dd_melt_shared$OTU == unique_asvs[3],]
+
+print(unique_asvs[3])
+
+custom_labels <- c("TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATTGGAAAGTTAGGGGTGAAATCCCAGGGCTCAACCCTGGAACTGCCCTTAAAACTCCCAGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG" = "Rhodobactereaceae ASV14")
+
+dd_plot_shared_3<- ggplot(dd_melt_shared_3, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_shared_3
+```
+
+```{r}
+dd_melt_shared_4<- dd_melt_shared[dd_melt_shared$OTU == unique_asvs[4],]
+
+print(unique_asvs[4])
+
+custom_labels <- c("TACGGAGGGTCCAAGCGTTATCCGGATTTATTGGGTTTAAAGGGTCCGTAGGCGGGGTTTTAAGTCAGTGGTGAAAGCCTACAGCTCAACTGTAGAACTGCCATTGAAACTGGAACTCTTGAATGTGATTGAGGTAGGCGGAATATGTCATGTAGCGGTGAAATGCTTAGATATGACATAGAACACCGATAGCGAAGGCAGCTTACCAAGTCATTATTGACGCTGATGGACGAAAGCGTGGGGAGCGAACAGG" = "Cryomorphaceae ASV23")
+
+
+dd_plot_shared_4<- ggplot(dd_melt_shared_4, aes(x = Condition, y = Abundance, fill = Condition)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Condition)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Condition, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Condition") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  scale_fill_manual(values = palette2) +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_shared_4
+```
+
+Let's now make the plot!
+
+```{r}
+combined_plot<- plot_grid(dd_plot_shared_1, dd_plot_shared_2, dd_plot_shared_3, dd_plot_shared_4, ncol=2, nrow = 2, align="v") +
+  theme(plot.margin = margin(b = 15, l=15, unit = "pt"))
+
+combined_plot
+
+final_plot <- ggdraw(combined_plot) +
+  draw_label("Health Condition", x = 0.5, y=0.0, size = 14, vjust = -0.5) +
+  draw_label("Relative Abundance", x = 0, y = 0.5, angle = 90, size = 14, vjust = 1.5)
+
+final_plot
+
+pdf("combined_relative_abundance_plots_updated_only_common_asvs.pdf", width=8, height=6)
+final_plot
+dev.off()
+```
+
+Let's redo the metacoder trees, but maybe we can filter out low abundance taxa?
+
+```{r}
+#Healthy HH samples
+obj_HH = parse_phyloseq(ps_f2_HH_pruned)
+
+print(obj_HH$data$sample_data$sample_id)
+print(obj_HH$data$tax_data$otu_id)
+print(colnames(obj_HH$data$otu_table))
+
+obj_HH$data$otu_props <- calc_obs_props(obj_HH, "otu_table", cols = obj_HH$data$sample_data$sample_id)
+
+obj_HH$data$tax_abund <- calc_taxon_abund(obj_HH, "otu_props", cols = obj_HH$data$sample_data$sample_id)
+
+obj_HH$data$tax_mean_prop <- calc_group_mean(obj_HH, data = "tax_abund",
+                                          cols = obj_HH$data$sample_data$sample_id,
+                                          groups = "mean_prop")
+
+set.seed(123)
+obj_HH %>% 
+  filter_taxa(mean_prop > 0.002) %>%# subset to the order rank
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>%
+  heat_tree(node_label = taxon_names,
+            node_size = mean_prop,
+            node_color = ifelse(taxon_names == "Verrucomicrobiales", "#eae2b7", 
+                       ifelse(taxon_names == "Rickettsiales", "#118ab2",
+                       ifelse(taxon_names == "Rhodobacterales", "#003049",
+                       ifelse(taxon_names == "Pseudomonadales", "#287271",
+                       ifelse(taxon_names == "Peptostreptococcales-Tissierellales", "#ef476f",
+                       ifelse(taxon_names == "Oligoflexales", "#d62828",
+                       ifelse(taxon_names == "Mycoplasmatales", "#fcbf49",
+                       ifelse(taxon_names == "Gracilibacteria", "#06d6a0",
+                       ifelse(taxon_names == "Bacteroidales", "#83d483", 
+                              "gray"))))))))),
+            initial_layout = "re", layout = "da",
+            title = "HH",
+            output_file = "metacoder_HH_plot_order_RA.pdf")
+```
+
+```{r}
+#Healthy HH samples
+obj_DD = parse_phyloseq(ps_f2_DD_pruned)
+
+print(obj_DD$data$sample_data$sample_id)
+print(obj_DD$data$tax_data$otu_id)
+print(colnames(obj_DD$data$otu_table))
+
+obj_DD$data$otu_props <- calc_obs_props(obj_DD, "otu_table", cols = obj_DD$data$sample_data$sample_id)
+
+obj_DD$data$tax_abund <- calc_taxon_abund(obj_DD, "otu_props", cols = obj_DD$data$sample_data$sample_id)
+
+obj_DD$data$tax_mean_prop <- calc_group_mean(obj_DD, data = "tax_abund",
+                                          cols = obj_DD$data$sample_data$sample_id,
+                                          groups = "mean_prop")
+cols <- c("Rhodobacterales"="#003049", "Oligoflexales"="#d62828", "Flavobacteriales" = "#f77f00", "Mycoplasmatales" = "#fcbf49", "Verrucomicrobiales" = "#eae2b7", "Pseudomonadales" = "#287271", "Peptostreptococcales-Tissierellales" = "#ef476f", "Rickettsiales" = "#118ab2", "Gracilibacteria" = "#06d6a0", "Bacteroidales" = "#83d483")
+
+set.seed(123)
+obj_DD %>% 
+  filter_taxa(mean_prop > 0.002) %>%# subset to the order rank
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>%
+  heat_tree(node_label = taxon_names,
+            node_size = mean_prop,
+            node_color = ifelse(taxon_names == "Verrucomicrobiales", "#eae2b7", 
+                       ifelse(taxon_names == "Rickettsiales", "#118ab2",
+                       ifelse(taxon_names == "Rhodobacterales", "#003049",
+                       ifelse(taxon_names == "Pseudomonadales", "#287271",
+                       ifelse(taxon_names == "Peptostreptococcales-Tissierellales", "#ef476f",
+                       ifelse(taxon_names == "Oligoflexales", "#d62828",
+                       ifelse(taxon_names == "Mycoplasmatales", "#fcbf49",
+                       ifelse(taxon_names == "Gracilibacteria", "#06d6a0",
+                       ifelse(taxon_names == "Bacteroidales", "#83d483", 
+                              "gray"))))))))),
+            initial_layout = "re", layout = "da",
+            title = "DD",
+            output_file = "metacoder_DD_plot_order_RA.pdf")
+```
+
+```{r}
+set.seed(123)
+
+taxa_to_keep <- c("Verrucomicrobiales", "Verrucomicrobiae", "Verrucomicrobiota", "Rickettsiales", "Rhodobacterales", "Alphaproteobacteria","Proteobacteria", "Pseudomonadales", "Gammaproteobacteria", "Peptostreptococcales-Tissierellales","Clostridia" , "Firmicutes", "Oligoflexales", "Oligoflexia", "Bdellovibrionota", "Mycoplasmatales", "Gracilibacteria")
+
+order_to_hide <- "Gammaproteobacteria" 
+
+obj_HH %>% 
+  filter_taxa(mean_prop > 0.002) %>%# subset to the order rank
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>%
+  heat_tree(node_label = ifelse((taxon_names %in% taxa_to_keep) & !(taxon_ranks == "Order" & taxon_names == order_to_hide), taxon_names, ""),
+            node_size = mean_prop,
+            make_node_legend = FALSE,
+            node_size_digits = 1,
+            node_size_axis_label = "Mean Abundance",
+            node_size_range = c(0.013, 0.08),
+            node_label_size_range = c(0.02, 0.04), 
+            repel_labels = TRUE,
+            overlap_avoidance = 4 ,
+            node_color = ifelse(taxon_names == "Verrucomicrobiales", "#eae2b7",
+                       ifelse(taxon_names == "Verrucomicrobiae", "#eae2b7",
+                       ifelse(taxon_names == "Verrucomicrobiota", "#eae2b7",
+                       ifelse(taxon_names == "Rickettsiales", "#118ab2",
+                       ifelse(taxon_names == "Rhodobacterales", "#caf0f8",
+                       ifelse(taxon_names == "Alphaproteobacteria" & taxon_ranks=="Class", "#caf0f8",
+                       ifelse(taxon_names == "Proteobacteria", "#caf0f8",
+                       ifelse(taxon_names == "Pseudomonadales", "#287271",
+                       ifelse(taxon_names == "Gammaproteobacteria" & taxon_ranks=="Class", "#287271",
+                       ifelse(taxon_names == "Peptostreptococcales-Tissierellales", "#ef476f",
+                       ifelse(taxon_names == "Clostridia" & taxon_ranks=="Class", "#ef476f",
+                       ifelse(taxon_names == "Firmicutes", "#ef476f",
+                       ifelse(taxon_names == "Oligoflexales", "#d62828",
+                       ifelse(taxon_names == "Oligoflexia", "#d62828",
+                       ifelse(taxon_names == "Bdellovibrionota", "#d62828",
+                       ifelse(taxon_names == "Mycoplasmatales", "#fcbf49",
+                       ifelse(taxon_names == "Gracilibacteria", "#06d6a0",
+                       ifelse(taxon_names == "Bacteroidales", "#83d483", 
+                              "gray")))))))))))))))))),
+            initial_layout = "re", layout = "da",
+            title = "Healthy Tissue",
+            output_file = "metacoder_HH_plot_order_RA_colored.pdf")
+```
+
+```{r}
+set.seed(123)
+
+taxa_to_label <- c("Verrucomicrobiales", "Verrucomicrobiae", "Verrucomicrobiota", "Rickettsiales", "Rhodobacterales", "Alphaproteobacteria","Proteobacteria", "Pseudomonadales", "Gammaproteobacteria", "Peptostreptococcales-Tissierellales","Clostridia" , "Firmicutes", "Oligoflexales", "Oligoflexia", "Bdellovibrionota", "Mycoplasmatales", "Gracilibacteria", "Bacteroidales", "Bacteroidota", "Bacteroidia")
+
+gamma_hide <- c("Gammaproteobacteria")
+alpha_hide<- "Alphaproteobacteria"
+clos_hide<- "Clostridia"
+
+obj_DD %>% 
+  filter_taxa(mean_prop > 0.002) %>%# subset to the order rank
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>%
+  heat_tree(node_label = ifelse((taxon_names %in% taxa_to_label) & !(taxon_ranks == "Order" & (taxon_names == gamma_hide | taxon_names == alpha_hide | taxon_names == clos_hide)), taxon_names, ""),
+            node_size = mean_prop,
+            make_node_legend = FALSE,
+            node_size_digits = 1,
+            node_size_axis_label = "Mean Abundance",
+            node_size_range = c(0.013, 0.08),
+            node_label_size_range = c(0.02, 0.04), 
+            repel_labels = TRUE,
+            overlap_avoidance = 4 ,
+            node_color = ifelse(taxon_names == "Verrucomicrobiales", "#eae2b7",
+                       ifelse(taxon_names == "Verrucomicrobiae", "#eae2b7",
+                       ifelse(taxon_names == "Verrucomicrobiota", "#eae2b7",
+                       ifelse(taxon_names == "Rickettsiales", "#118ab2",
+                       ifelse(taxon_names == "Rhodobacterales", "#caf0f8",
+                       ifelse(taxon_names == "Alphaproteobacteria" & taxon_ranks=="Class", "#caf0f8",
+                       ifelse(taxon_names == "Proteobacteria", "#caf0f8",
+                       ifelse(taxon_names == "Pseudomonadales", "#287271",
+                       ifelse(taxon_names == "Gammaproteobacteria" & taxon_ranks=="Class", "#287271",
+                       ifelse(taxon_names == "Peptostreptococcales-Tissierellales", "#ef476f",
+                       ifelse(taxon_names == "Clostridia" & taxon_ranks=="Class", "#ef476f",
+                       ifelse(taxon_names == "Firmicutes", "#ef476f",
+                       ifelse(taxon_names == "Oligoflexales", "#d62828",
+                       ifelse(taxon_names == "Oligoflexia", "#d62828",
+                       ifelse(taxon_names == "Bdellovibrionota", "#d62828",
+                       ifelse(taxon_names == "Mycoplasmatales", "#fcbf49",
+                       ifelse(taxon_names == "Gracilibacteria", "#06d6a0",
+                       ifelse(taxon_names == "Bacteroidales", "#83d483",
+                       ifelse(taxon_names == "Bacteroidota", "#83d483",
+                       ifelse(taxon_names == "Bacteroidia", "#83d483",
+                              "gray")))))))))))))))))))),
+            initial_layout = "re", layout = "da",
+            title = "Disease Lesion",
+            output_file = "metacoder_DD_plot_order_RA_colored.pdf")
+```
+
+Now make combined plot.
+
+```{r}
+hh_plot<- obj_HH %>% 
+  filter_taxa(mean_prop > 0.002) %>%# subset to the order rank
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>%
+  heat_tree(node_label = ifelse((taxon_names %in% taxa_to_keep) & !(taxon_ranks == "Order" & taxon_names == order_to_hide), taxon_names, ""),
+            node_size = mean_prop,
+            make_node_legend = FALSE,
+            node_size_digits = 1,
+            node_size_axis_label = "Mean Abundance",
+            node_size_range = c(0.013, 0.08),
+            node_label_size_range = c(0.03, 0.05), 
+            repel_labels = TRUE,
+            overlap_avoidance = 3,
+            node_color = ifelse(taxon_names == "Verrucomicrobiales", "#eae2b7",
+                       ifelse(taxon_names == "Verrucomicrobiae", "#eae2b7",
+                       ifelse(taxon_names == "Verrucomicrobiota", "#eae2b7",
+                       ifelse(taxon_names == "Rickettsiales", "#118ab2",
+                       ifelse(taxon_names == "Rhodobacterales", "#caf0f8",
+                       ifelse(taxon_names == "Alphaproteobacteria" & taxon_ranks=="Class", "#caf0f8",
+                       ifelse(taxon_names == "Proteobacteria", "#caf0f8",
+                       ifelse(taxon_names == "Pseudomonadales", "#287271",
+                       ifelse(taxon_names == "Gammaproteobacteria" & taxon_ranks=="Class", "#287271",
+                       ifelse(taxon_names == "Peptostreptococcales-Tissierellales", "#ef476f",
+                       ifelse(taxon_names == "Clostridia" & taxon_ranks=="Class", "#ef476f",
+                       ifelse(taxon_names == "Firmicutes", "#ef476f",
+                       ifelse(taxon_names == "Oligoflexales", "#d62828",
+                       ifelse(taxon_names == "Oligoflexia", "#d62828",
+                       ifelse(taxon_names == "Bdellovibrionota", "#d62828",
+                       ifelse(taxon_names == "Mycoplasmatales", "#fcbf49",
+                       ifelse(taxon_names == "Gracilibacteria", "#06d6a0",
+                              "gray"))))))))))))))))),
+            initial_layout = "re", layout = "da")
+
+dd_plot<- obj_DD %>% 
+  filter_taxa(mean_prop > 0.002) %>%# subset to the order rank
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>%
+  heat_tree(node_label = ifelse((taxon_names %in% taxa_to_label) & !(taxon_ranks == "Order" & (taxon_names == gamma_hide | taxon_names == alpha_hide | taxon_names == clos_hide)), taxon_names, ""),
+            node_size = mean_prop,
+            make_node_legend = FALSE,
+            node_size_digits = 1,
+            node_size_axis_label = "Mean Abundance",
+            node_size_range = c(0.013, 0.08),
+            node_label_size_range = c(0.03, 0.05), 
+            repel_labels = TRUE,
+            overlap_avoidance = 5,
+            node_color = ifelse(taxon_names == "Verrucomicrobiales", "#eae2b7",
+                       ifelse(taxon_names == "Verrucomicrobiae", "#eae2b7",
+                       ifelse(taxon_names == "Verrucomicrobiota", "#eae2b7",
+                       ifelse(taxon_names == "Rickettsiales", "#118ab2",
+                       ifelse(taxon_names == "Rhodobacterales", "#caf0f8",
+                       ifelse(taxon_names == "Alphaproteobacteria" & taxon_ranks=="Class", "#caf0f8",
+                       ifelse(taxon_names == "Proteobacteria", "#caf0f8",
+                       ifelse(taxon_names == "Pseudomonadales", "#287271",
+                       ifelse(taxon_names == "Gammaproteobacteria" & taxon_ranks=="Class", "#287271",
+                       ifelse(taxon_names == "Peptostreptococcales-Tissierellales", "#ef476f",
+                       ifelse(taxon_names == "Clostridia" & taxon_ranks=="Class", "#ef476f",
+                       ifelse(taxon_names == "Firmicutes", "#ef476f",
+                       ifelse(taxon_names == "Oligoflexales", "#d62828",
+                       ifelse(taxon_names == "Oligoflexia", "#d62828",
+                       ifelse(taxon_names == "Bdellovibrionota", "#d62828",
+                       ifelse(taxon_names == "Mycoplasmatales", "#fcbf49",
+                       ifelse(taxon_names == "Gracilibacteria", "#06d6a0",
+                       ifelse(taxon_names == "Bacteroidales", "#83d483",
+                       ifelse(taxon_names == "Bacteroidota", "#83d483",
+                       ifelse(taxon_names == "Bacteroidia", "#83d483",
+                              "gray")))))))))))))))))))),
+            initial_layout = "re", layout = "da")
+
+library(gridExtra)
+
+grid.arrange(hh_plot, dd_plot, nrow = 1)  # Adjust nrow/ncol for layout
+
+library(patchwork)
+
+# Combine plots with annotations
+combined_plot <- hh_plot + dd_plot 
+
+print(combined_plot)
+
+pdf("comparative_metacoder_trees.pdf", width = 12, height = 8)
+combined_plot
+dev.off()
+```
+
+Now to make them colored by relative abundance
+
+```{r}
+set.seed(123)
+obj_HH %>% 
+  filter_taxa(mean_prop > 0.002) %>%# subset to the order rank
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>%
+  heat_tree(node_label = taxon_names,
+            node_size = mean_prop,
+            node_color = ifelse(taxon_names == "Verrucomicrobiales", mean_prop,
+                       ifelse(taxon_names == "Verrucomicrobiae", mean_prop,
+                       ifelse(taxon_names == "Verrucomicrobiota", mean_prop,
+                       ifelse(taxon_names == "Rickettsiales", mean_prop,
+                       ifelse(taxon_names == "Rhodobacterales", mean_prop,
+                       ifelse(taxon_names == "Alphaproteobacteria" & taxon_ranks=="Class", mean_prop,
+                       ifelse(taxon_names == "Proteobacteria", mean_prop,
+                       ifelse(taxon_names == "Pseudomonadales", mean_prop,
+                       ifelse(taxon_names == "Gammaproteobacteria" & taxon_ranks=="Class", mean_prop,
+                       ifelse(taxon_names == "Peptostreptococcales-Tissierellales", mean_prop,
+                       ifelse(taxon_names == "Clostridia" & taxon_ranks=="Class", mean_prop,
+                       ifelse(taxon_names == "Firmicutes", mean_prop,
+                       ifelse(taxon_names == "Oligoflexales", mean_prop,
+                       ifelse(taxon_names == "Oligoflexia", mean_prop,
+                       ifelse(taxon_names == "Bdellovibrionota", mean_prop,
+                       ifelse(taxon_names == "Mycoplasmatales", mean_prop,
+                       ifelse(taxon_names == "Gracilibacteria", mean_prop,
+                              "gray"))))))))))))))))),
+            initial_layout = "re", layout = "da",
+            title = "HH",
+            output_file = "metacoder_HH_plot_order_RA_coloredRA.pdf")
+```
+
+```{r}
+set.seed(123)
+obj_DD %>% 
+  filter_taxa(mean_prop > 0.002) %>%
+  filter_taxa(taxon_ranks == "Order", supertaxa = TRUE) %>%
+  heat_tree(node_label = taxon_names,
+            node_size = mean_prop,
+            make_node_legend = TRUE,
+            node_color = ifelse(taxon_names == "Verrucomicrobiales", mean_prop,
+                       ifelse(taxon_names == "Verrucomicrobiae", mean_prop,
+                       ifelse(taxon_names == "Verrucomicrobiota", mean_prop,
+                       ifelse(taxon_names == "Rickettsiales", mean_prop,
+                       ifelse(taxon_names == "Rhodobacterales", mean_prop,
+                       ifelse(taxon_names == "Alphaproteobacteria" & taxon_ranks=="Class", mean_prop,
+                       ifelse(taxon_names == "Proteobacteria", mean_prop,
+                       ifelse(taxon_names == "Pseudomonadales", mean_prop,
+                       ifelse(taxon_names == "Gammaproteobacteria" & taxon_ranks=="Class", mean_prop,
+                       ifelse(taxon_names == "Peptostreptococcales-Tissierellales", mean_prop,
+                       ifelse(taxon_names == "Clostridia" & taxon_ranks=="Class", mean_prop,
+                       ifelse(taxon_names == "Firmicutes", mean_prop,
+                       ifelse(taxon_names == "Oligoflexales", mean_prop,
+                       ifelse(taxon_names == "Oligoflexia", mean_prop,
+                       ifelse(taxon_names == "Bdellovibrionota", mean_prop,
+                       ifelse(taxon_names == "Mycoplasmatales", mean_prop,
+                       ifelse(taxon_names == "Gracilibacteria", mean_prop,
+                       ifelse(taxon_names == "Bacteroidales", mean_prop,
+                       ifelse(taxon_names == "Bacteroidia", mean_prop,
+                       ifelse(taxon_names == "Bacteroidota", mean_prop,
+                              "gray")))))))))))))))))))),
+            initial_layout = "re", layout = "da",
+            title = "DD",
+            output_file = "metacoder_DD_plot_order_RA_colored.pdf")
+```
+
+```{r}
+ps_f2_ra #183 ASVs in 132 samples
+
+ps_f2_ra_genus<- tax_glom(ps_f2_ra, taxrank = "Genus")
+ps_f2_ra_genus_df <- as.data.frame(t(otu_table(ps_f2_ra_genus)))
+mean_abund <- rowMeans(ps_f2_ra_genus_df)
+top_15 <- names(sort(mean_abund, decreasing = TRUE))[1:15]
+ps_top15_genus <- prune_taxa(top_15, ps_f2_ra_genus)
+melted_data <- psmelt(ps_top15_genus)
+
+#Assign colors per phylum
+length(unique(melted_data$Phylum))
+unique(melted_data$Phylum)
+unique(melted_data$Genus)
+
+cols <- c("Bacteroidota"="#2A9D8F","Cyanobacteria"="#264653","Proteobacteria"="#E9C46A",
+          "Firmicutes"="#F4A261", "Bdellovibrionota" = "#9a031e")
+library(stringr)
+
+pdf("Bubbleplot_Top15_Genera.pdf",width=20,height=8.5)
+bubplot <- ggplot(melted_data, aes(x=Sample, y=Genus, size=Abundance, fill=Phylum))+
+  geom_point(shape=21)+
+  scale_size(range = c(0, 17), name="Relative Abundance")+
+  theme(axis.text.x = element_blank())+
+  facet_grid(.~fct_relevel(Condition, "HH", "HD", "DD"), scales = "free_x", space = "free_x")+
+  scale_fill_manual(values = cols, labels = c("Bacteroidota", "Bdellovibrionota", "Cyanobacteria", "Firmicutes", "Proteobacteria")) +
+  theme(strip.background = element_blank())+
+  xlab("Coral") +
+  ylab("Lowest Taxonomic Assignment") +
+  theme(panel.grid.major=element_line(linetype=1,color="grey"),
+        panel.background = element_blank()) +
+  theme(axis.text.x = element_blank())+
+  theme(axis.title.x = element_text(size = 22, face = "bold")) +
+  theme(strip.background =element_rect(fill="white"))+
+  theme(strip.text = element_text(face = "bold"))+
+  theme(strip.text = element_text(size = 22))+
+  theme(axis.title.y = element_text(size = 22, face = "bold"))+
+  theme(axis.title.x = element_text(size = 22, face = "bold"))+
+  theme(axis.text.y = element_text(size=18, color = "black"))+
+  theme(legend.title = element_text(size = 18, face = "bold"))+
+  theme(legend.text = element_text(size = 18))+
+  guides(fill = guide_legend(override.aes = list(size=7.5, vjust=30.5))) +
+  theme(panel.border = element_blank()) +
+  theme(panel.spacing = unit(1, "lines")) +
+  theme(strip.background = element_blank())
+
+bubplot
+dev.off()
+```
+
+We were asked by folks in the FLP group to look at the functional profiles of the microbes and really focus on the nitrogen cycling bacteria. So we are going to run the ASVs through PICRUST2 on the HiperGator. In order to do this, we need to transpose the OTU table and then write it out as a tab-delimited file.
+
+```{r}
+ps_f2_otu_table<- t(otu_ps_f2)
+rownames(ps_f2_otu_table) <- paste0("ASV", seq_len(nrow(ps_f2_otu_table)))
+write.table(ps_f2_otu_table, "ps_f2_otu_table.txt", sep="\t",col.names=TRUE)
+
+ps_f2_otu_table<- as.data.frame(ps_f2_otu_table)
+library(readr)
+write.table(ps_f2_otu_table, "ps_f2_otu_table.tsv", sep = "\t", row.names = TRUE, quote = FALSE)
+```
+
+##DESeq Diseased Corals with and Without SCTLD History
+
+```{r}
+ps_f2
+ps_fs_sctld_flp<- subset_samples(ps_f2, Condition=="DD")
+ps_f2_sctld_flp<- subset_samples(ps_fs_sctld_flp, Disease_History == "SCTLD" | Disease_History == "FLP_only")
+
+ps_f2_sctld_flp
+
+ps_f2_sctld_flp_pruned <- prune_taxa(taxa_sums(ps_f2_sctld_flp) > 0, ps_f2_sctld_flp)
+ps_f2_sctld_flp_pruned
+
+# Define the order of the conditions for testing
+# In this order, the positive fold change values are increased in Diseased Tissue
+sample_data(ps_f2_sctld_flp_pruned)$Disease_History<-factor(sample_data(ps_f2_sctld_flp_pruned)$Disease_History,levels=c("SCTLD","FLP_only"))
+head(sample_data(ps_f2_sctld_flp_pruned)$Disease_History, 10)
+
+# DESEQ2 analysis on Dcyl Samples
+dds = phyloseq_to_deseq2(ps_f2_sctld_flp_pruned, ~ Disease_History)
+dds
+#filter rows with very few counts
+dds <- dds[ rowSums(counts(dds)) > 5, ]
+cts <- counts(dds)
+geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+dds <- DESeq(dds,test="Wald", fitType="parametric")
+res = results(dds, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ps)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+dim(sigtab)
+#save table of results
+sig = as(sigtab, "matrix")
+write.table(sig,"DESeq2_results_SCTLD_FLP_Only.txt",sep="\t",col.names=NA)
+sig_dif<- read.table("DESeq2_results_SCTLD_FLP_Only.txt", header = TRUE)
+colnames(sig_dif)[1]<- "ASV"
+
+#Count how many orders
+orders<-unique(sig_dif$Order)
+print(orders)
+
+order_cols<-c("Rhodospirillales"="#f47068", "Bacteroidales" = "#ffb3ae"  ,            "Pseudomonadales"  = "#fff4f1",  "Verrucomicrobiales" = "#1697a6",        
+"Absconditabacteriales (SR1)"= "#0e606b","Rhizobiales" = "#ffc24b")  
+
+
+#Create Figure for Significantly Different Taxa
+pdf("Figure_DETaxa_SCTLD_FLP.pdf",width=11,height=8)
+p1 <- ggplot(sig_dif,aes(log2FoldChange,Genus,fill=Order))+
+  geom_point(size=5, shape=21)+
+  geom_errorbarh(aes(xmin=log2FoldChange-lfcSE, xmax=log2FoldChange+lfcSE),height=0.2)+
+  scale_fill_manual(values=order_cols)+
+  theme(plot.title = element_text(face="italic"))+
+  labs(y= "Lowest Taxonomic Assignment")+
+  theme(axis.title=element_text(size=14))+
+  theme(legend.text=element_text(size=14))+
+  theme(legend.title=element_text(size=16))+
+  theme(axis.text=element_text(size=14, color="black"))+
+  theme(legend.position = "right")+
+  geom_vline(xintercept=0, linetype="dashed") +
+  theme(panel.grid = element_blank()) +
+  theme(panel.background = element_blank())
+p1
+dev.off()
+```
+
+```{r}
+ps_f2_sctld_flp_pruned_ra<- transform_sample_counts(ps_f2_sctld_flp_pruned, function(x) x / sum(x))
+sctld_flp_melt <- psmelt(ps_f2_sctld_flp_pruned_ra)
+
+flp_vs_sctld_asvs<- sig_dif$ASV
+
+filtered_phyloseq <- prune_taxa(flp_vs_sctld_asvs, ps_f2_sctld_flp_pruned_ra)
+filtered_phyloseq <- prune_taxa(taxa_sums(filtered_phyloseq) > 0, filtered_phyloseq)
+
+filtered_phyloseq
+
+sctld_flp_melt <- psmelt(filtered_phyloseq)
+
+##Make plot
+
+sctld_flp_1<- sctld_flp_melt[sctld_flp_melt$OTU == flp_vs_sctld_asvs[1],]
+print(flp_vs_sctld_asvs[1])
+
+custom_labels <- c("TACGAAGGGAGCAAGCGTTGTTCGGAATTACTGGGCGTAAAGGGCGTGTAGGCGGATTATCAAGTTAGGGGTGAAATCCCGGGGCTCAACCTCGGCACTGCCTTTAAGACTGATAATCTAGAGTATGTGAGGGGATGATGGAATACCTAGTGTAGAGGTGAAATTCGTAGATATTAGGTGGAACACCAGTGGCGAAGGCGATTATCTGGCACATTACTGACGCTGAGGCGCGAAAGCGTGGGGAGCAAACGGG" = "Terasakiellaceae")
+
+dd_plot_flp_sctld_1<- ggplot(sctld_flp_1, aes(x =Disease_History, y = Abundance, fill = Disease_History)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Disease_History)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Disease_History, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Disease_HIstory") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_flp_sctld_1
+```
+
+```{r}
+##Make plot
+
+sctld_flp_2<- sctld_flp_melt[sctld_flp_melt$OTU == flp_vs_sctld_asvs[2],]
+print(flp_vs_sctld_asvs[2])
+
+custom_labels <- c("TACGGAGGGTGTAAGCGTTATCCGGATTTATTGGGTTTAAAGGGTACGTAGGCGGTAATATAAGTCAGTGGTGAAATCCTGCAGCTCAACTGTAGAACTGCCATTGAAACTGTATTACTTGAGTATACTTGAGGTAGGCGGAATGAGTAGTGTAGCGGTGAAATGCTTAGATATTACTCAGAACACCGATTGCGAAGGCAGCTTACTAAGGTATAACTGACGCTGATGTACGAAAGCGTGGGGAGCGAACAGG" = "Roseimarinus")
+
+dd_plot_flp_sctld_2<- ggplot(sctld_flp_2, aes(x =Disease_History, y = Abundance, fill = Disease_History)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Disease_History)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Disease_History, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Disease_HIstory") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_flp_sctld_2
+```
+
+```{r}
+##Make plot
+
+sctld_flp_3<- sctld_flp_melt[sctld_flp_melt$OTU == flp_vs_sctld_asvs[3],]
+print(flp_vs_sctld_asvs[3])
+
+custom_labels <- c("TACGGAGGGTGCGAGCGTTAATCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGTTTGTTAAGTCGGATGTGAAAGCCCCGGGCTCAACCTGGGAACTGCATCCGATACTGGCCGACTAGAGTACGAGAGAGGGAGGTAGAATTCCACGTGTAGCGGTGAAATGCGTAGATATGTGGAGGAATACCAGTGGCGAAGGCGGCCTCCTGGCTCGATACTGACGCTGAGGTGCGAAAGCGTGGGGAGCAAACAGG" = "Halieaceae")
+
+dd_plot_flp_sctld_3<- ggplot(sctld_flp_3, aes(x =Disease_History, y = Abundance, fill = Disease_History)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Disease_History)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Disease_History, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Disease_HIstory") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_flp_sctld_3
+```
+
+```{r}
+sctld_flp_4<- sctld_flp_melt[sctld_flp_melt$OTU == flp_vs_sctld_asvs[4],]
+print(flp_vs_sctld_asvs[4])
+
+custom_labels <- c("TACGAAGGTCCCAAGCGTTGTTCGGAATCACTGGGCGTAAAGCGTATGTAGGCGGCGTGGAAAGTCAGGTGTGAAAGCCCGGGGCTCAACCCCGGAATTGCACCCGATACTCCCACGCTAGAGTAATGGAGGGGAGTCTGGAATTCACGGTGTAGCAGTGAAATGCGTGGATATCGTGAGGAACACTAGTGGCGAAGGCGAGACTCTGGACATTTACTGACGCTGAGATACGAAGGCTAGGGGAGCGAATGGG" = "Roseibacillus")
+
+dd_plot_flp_sctld_4<- ggplot(sctld_flp_4, aes(x =Disease_History, y = Abundance, fill = Disease_History)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Disease_History)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Disease_History, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Disease_HIstory") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_flp_sctld_4
+```
+
+```{r}
+sctld_flp_5<- sctld_flp_melt[sctld_flp_melt$OTU == flp_vs_sctld_asvs[5],]
+print(flp_vs_sctld_asvs[5])
+
+custom_labels <- c("TACGTAGGTCCCGAGCGTTATCCGGATTTACTGGGCGTAAAGCGTCCGTAGCTTGGTATGTAAGTCTATTTTTAAAGACTCAGATTCAATCAGAGGAAGGGAATAGATACTGCATATCCTAGAGGATCTTAGAGGTTAGTGGAATTTCCGGTGGAGTGGTGAAATGCGTTGATATCGGAAGGAACGCCGAAAGCGAAAGCAGCTAACTATAATTTTCCTGACAGTGATGGACGAAAGTTTGGGTAGCAAACGGG" = "Absconditabacteriales (SR1)")
+
+dd_plot_flp_sctld_5<- ggplot(sctld_flp_5, aes(x =Disease_History, y = Abundance, fill = Disease_History)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Disease_History)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Disease_History, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Disease_HIstory") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_flp_sctld_5
+```
+
+```{r}
+sctld_flp_6<- sctld_flp_melt[sctld_flp_melt$OTU == flp_vs_sctld_asvs[6],]
+print(flp_vs_sctld_asvs[6])
+
+custom_labels <- c("TACGAAGGGGGCTAGCGTTGTTCGGAATCACTGGGCGTAAAGCGCGCGTAGGCGGACTTTTAAGTCAGGGGTGAAATCCCGAGGCTCAACCTCGGAACTGCCTTTGATACTGGAAGTCTTGAGTTCGAGAGAGGTGAGTGGAATACCGAGTGTAGAGGTGAAATTCGTAGATATTCGGTGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGCGTGGGGAGCAAACAGG" = "Cohaesibacter")
+
+dd_plot_flp_sctld_6<- ggplot(sctld_flp_6, aes(x =Disease_History, y = Abundance, fill = Disease_History)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Disease_History)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Disease_History, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Disease_HIstory") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_flp_sctld_6
+```
+
+```{r}
+combined_plot<- plot_grid(dd_plot_flp_sctld_1, dd_plot_flp_sctld_2, dd_plot_flp_sctld_3, dd_plot_flp_sctld_4,dd_plot_flp_sctld_5,dd_plot_flp_sctld_6, ncol=3, nrow = 2, align="v") +
+  theme(plot.margin = margin(b = 15, l=15, unit = "pt"))
+
+combined_plot
+
+final_plot <- ggdraw(combined_plot) +
+  draw_label("Health History", x = 0.5, y=0.0, size = 14, vjust = -0.5) +
+  draw_label("Relative Abundance", x = 0, y = 0.5, angle = 90, size = 14, vjust = 1.5)
+
+final_plot
+
+pdf("combined_relative_abundance_plots_FLP_vs_SCTLD.pdf", width=8, height=6)
+final_plot
+dev.off()
+```
+
+#ASVs in DD corals not in HH corals
+
+```{r}
+ps_fs_dd<- subset_samples(ps_f2, Condition=="DD")
+ps_f2_DD <- prune_taxa(taxa_sums(ps_fs_dd) > 0, ps_fs_dd)
+ps_f2_DD
+
+ps_f2_dd_100 <- phyloseq_filter_prevalence(
+  physeq = ps_f2_DD,
+  prev.trh = 1.0,  # 100% prevalence threshold
+  abund.trh = NULL, # Optional abundance threshold
+  threshold_condition = "OR" # Keep taxa meeting either threshold
+)
+ps_f2_dd_100
+
+asv_vector <- taxa_names(ps_f2_dd_100)
+
+dd_seqs<- names(sequences[sequences %in% asv_vector])
+
+```
+
+```{r}
+ps_fs_hh<- subset_samples(ps_f2, Condition=="HH")
+ps_f2_HH <- prune_taxa(taxa_sums(ps_fs_hh) > 0, ps_fs_hh)
+ps_f2_HH
+
+ps_f2_HH_asvs<- taxa_names(ps_f2_HH)
+
+taxa_present <- asv_vector %in% ps_f2_HH_asvs
+
+```
+
+```{r}
+ps_f2_melt<- psmelt(ps_f2)
+
+ps_f2_melt_1<- ps_f2_melt[ps_f2_melt$OTU == asv_vector[1],]
+print(asv_vector[1])
+
+custom_labels <- c("TACGGGAGTGGCAAGCGTTATCCGGAATTATTGGGCGTAAAGCGTCCGCAGGCGGCCCTTCAAGTCTGCTGTTAAAAAGTGGAGCTTAACTCCATCATGGCAGTGGAAACTGTTGGGCTTGAGTGTGGTAGGGGCAGAGGGAATTCCCGGTGTAGCGGTGAAATGCGTAGATATCGGGAAGAACACCAGTGGCGAAGGCGCTCTGCTGGGCCATAACTGACGCTCATGGACGAAAGCCAGGGGAGCGAAAGGG" = "Cohaesibacter")
+
+dd_plot_flp_sctld_6<- ggplot(sctld_flp_6, aes(x =Disease_History, y = Abundance, fill = Disease_History)) +
+  geom_boxplot(alpha = 0.7,  outlier.shape=NA, aes(fill = Disease_History)) +
+  geom_jitter(position=position_jitter(width=.1,height=0),aes(fill = Disease_History, colour="black"),size=4, pch=21, colour = "black")+
+  labs(x = "Genus", y = "Relative Abundance", fill = "Disease_HIstory") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~OTU, labeller = labeller(OTU = custom_labels)) +
+  theme_classic() +
+  theme(panel.background = element_blank()) +
+  theme(axis.text.y = element_text(color="black")) +
+  theme(axis.text.x = element_text(color="black")) +
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x = element_blank())
+
+dd_plot_flp_sctld_6
+```
+
+```{r}
+ps_f2_melt_2<- ps_f2_melt[ps_f2_melt$OTU == asv_vector[2],]
+
+ps_f2_melt_3<- ps_f2_melt[ps_f2_melt$OTU == asv_vector[3],]
+```
+
+### Unique to OATLD
+
+We need to find which ASVs were enriched in Oatld and were indicators of oatld but didn't match SCTLD bioindicators/
+
+```{r}
+sctld_indicators<- tidy_blast_100_no_repeats
+
+oatld_enriched<- sig_dif_hh_dd
+oatld_indics<- dd_ind_asvs_w_tax
+```
+
+```{r}
+#First, create a column of indicator species output that is the ASV sequence
+oatld_indics<- rownames_to_column(oatld_indics, var = "ASV")
+
+#Which microbes enriched in OATLD were identical to those in indicator species of lesions?
+oatld_microbes<- oatld_enriched[oatld_enriched$ASV %in% oatld_indics$ASV, ]
+
+#Which ones are not found in the BLASTn results of the SCTLD indicators?
+oatld_microbes<- oatld_microbes %>% 
+  filter(!ASV %in% sctld_indicators$sequence)
+
+print(oatld_microbes$ASV[oatld_microbes$Genus=="Cribrihabitans"])
+print(oatld_microbes$ASV[oatld_microbes$Genus=="Ferrimonas"])
+print(oatld_microbes$ASV[oatld_microbes$Genus=="Mycoplasma"])
+print(oatld_microbes$ASV[oatld_microbes$Genus=="Aurantivirga"])
+print(oatld_microbes$ASV[oatld_microbes$Genus=="Micavibrionaceae"])
+
+#Cribrihabitans
+print(names(sequences)[which(sequences == "TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATTGGAAAGTTGGGGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTTCAAAACTCCCAGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG")])
+
+#Ferrimonas
+print(names(sequences)[which(sequences == "TACGGAGGGTGCGAGCGTTAATCGGAATCACTGGGCGTAAAGCGCATGCAGGCGGTTTGCTAAGCGAGATGTGAAAGCCCCGGGCTTAACCTGGGAACTGCATTTCGAACTGGCGAACTAGAGTCTTGTAGAGGGGGGTAGAATTTCAGGTGTAGCGGTGAAATGCGTAGAGATCTGAAGGAATACCAGTGGCGAAGGCGGCCCCCTGGACAAAGACTGACGCTCAGATGCGAAAGCGTGGGGAGCAAACAGG")])
+
+#Mycoplasma
+print(names(sequences)[which(sequences == "TACATAGGCCCCAAGCGTTATCCGGATTTACTGGGCGTAAAGAGTGCGCAGGTGATTTCACAAGTCTGTATTGAAAGGCTGGAGCTCAACTCCAGTTTGGTATGGAAACTGTGTTATTAGATTATGATAGAGGTTAGCGGAATTCCTAATGTAGCGGTGGAATGCGTAGATATTAGGAGGAACACCAAAAGCGAAGGCAGCTAACTGGGTCATTAATGACACTGGTGCACGAAAGCGTGGGGAGCAAACAGG")])
+
+#Aurantivirga
+print(names(sequences)[which(sequences == "TACGGAGGGTGCAAGCGTTATCCGGAATCATTGGGTTTAAAGGGTCCGCAGGCGGTCAATTAAGTCAGAGGTGAAATCCCATAGCTTAACTATGGAACTGCCTTTGATACTGGTTGACTTGAGTTATACGGAAGTAGATAGAATAAGTAGTGTAGCGGTGAAATGCATAGATATTACTTAGAATACCGATTGCGAAGGCAGTCTACTACGTATATACTGACGCTCATGGACGAAAGCGTGGGGAGCGAACAGG")])
+
+#Micavibrionaceae
+print(names(sequences)[which(sequences == "TACTGGGGGAGCGAGCGTTGTTCGGAATCACTGGGCGTAAAGCGTGCGCAGGCGGTTTGGAAAGTCAGAAGTGAAATCCCAGAGCTCAACTCTGGAACTGCTTTTGAAACTTCCTTACTAGAGTTTGGTAGAGGTTGGGAGAATTCCTAGTGTAGAGGTGAAATTCGTAGATATTAGGAGGAATACCAGTGGCGTAGGCGCCCAACTGGACCATTACTGACGCTCAGGCACGAAAGCGTGGGGAGCAAACAGG")])
+
+```
+
+```{r}
+library(cowplot)
+
+combined_plot<- plot_grid(dd_plot_8, dd_plot_9, dd_plot_14, dd_plot_15, dd_plot_19, ncol=3, nrow = 2, align="v") +
+  theme(plot.margin = margin(b = 15, l=15, unit = "pt"))
+
+combined_plot
+
+final_plot <- ggdraw(combined_plot) +
+  draw_label("Health Condition", x = 0.5, y=0.0, size = 14, vjust = -0.5) +
+  draw_label("Relative Abundance", x = 0, y = 0.5, angle = 90, size = 14, vjust = 1.5)
+
+final_plot
+
+pdf("combined_relative_abundance_plots_OATLD_unique_ASVs_updated.pdf", width=8, height=8)
+final_plot
+dev.off()
+```
+
+#CLAMtest
+
+```{r}
+
+###############################################
+#CLAM Test PS
+###############################################
+otu_table <- as.data.frame(otu_table(ps_f2_HH_DD_pruned))
+sample_data <- as.data.frame(sample_data(ps_f2_HH_DD_pruned))
+# Assuming 'group' is a column in your sample data
+env_var <- sample_data$Condition
+clam_results_ps <- vegan::clamtest(otu_table, env_var, alpha = 0.05, specialization = 2/3)
+print(clam_results_ps)
+
+#Attach taxonomic data to ASVs
+tax_table <- as.data.frame(tax_table(ps_f2_HH_DD_pruned))
+
+tax_table$Species<- rownames(tax_table)
+clam_ps_w_tax<- merge(clam_results_ps, tax_table, by = "Species")
+
+###How many of each group?
+#Subset by Generalists
+clam_ps_w_tax_gen<- clam_ps_w_tax[clam_ps_w_tax$Classes=="Generalist",]
+nrow(clam_ps_w_tax_gen)
+
+#Subset by Curacao Specialists
+clam_ps_w_tax_hh<- clam_ps_w_tax[clam_ps_w_tax$Classes=="Specialist_HH",]
+nrow(clam_ps_w_tax_hh)
+
+#Subset by Belize Specialists
+clam_ps_w_tax_dd<- clam_ps_w_tax[clam_ps_w_tax$Classes=="Specialist_DD",]
+nrow(clam_ps_w_tax_dd)
+
+#Subset by Too Rare
+clam_ps_w_tax_rare<- clam_ps_w_tax[clam_ps_w_tax$Classes=="Too_rare",]
+nrow(clam_ps_w_tax_rare)
+
+print(clam_results_ps)
+
+summary(clam_results_ps)
+
+c("DD" = "#d1495b", "HD" = "#edae49", "HH" = "#00798c")
+
+
+colors <- c("Generalist" = "gray",
+            "Specialist_HH" = "#00798c", 
+            "Specialist_DD" = "#d1495b", 
+            "Too_Rare" = "black")
+
+labels<- c("Generalist", "Specialist HH", "Specialist DD", "Too Rare")
+
+sig_dif_hh_dd$ASV
+
+x_1<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCACGTAGGCGGACTGGAAAGTTGGGGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTCCAAAACTATCAGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG"] +1 
+y_1<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCACGTAGGCGGACTGGAAAGTTGGGGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTCCAAAACTATCAGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG"] +1
+
+x_2<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGAAAGGTGCAAGCGTTGTTCGGAATAACTGGGCGTAAAGCGCTCGTAGGCGGGAATTCAGGTCGATTGTGAAAGCCCAGAGCTCAACTTTGGAATTGCAGTCGAAACCGGATTTCTTGAATACTCGAGAGGGTGGGGGAATTCCTAGTGGAGAAGTGAAATTCGTAGAGATTAGGAGGAACACCAGAGGCGAAGGCGCCTACCTGGCGATGTATTGACGCTGAGGAGCGAAAGTGTGGGGAGCAAACAGG"] +1 
+y_2<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGAAAGGTGCAAGCGTTGTTCGGAATAACTGGGCGTAAAGCGCTCGTAGGCGGGAATTCAGGTCGATTGTGAAAGCCCAGAGCTCAACTTTGGAATTGCAGTCGAAACCGGATTTCTTGAATACTCGAGAGGGTGGGGGAATTCCTAGTGGAGAAGTGAAATTCGTAGAGATTAGGAGGAACACCAGAGGCGAAGGCGCCTACCTGGCGATGTATTGACGCTGAGGAGCGAAAGTGTGGGGAGCAAACAGG"] +1
+
+x_3<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATCGGAAAGTTGGGGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTCCAAAACTATCGGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG"] +1 
+y_3<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATCGGAAAGTTGGGGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTCCAAAACTATCGGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG"] +1
+
+x_4<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATTGGAAAGTTAGGGGTGAAATCCCAGGGCTCAACCCTGGAACTGCCCTTAAAACTCCCAGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG"] +1 
+y_4<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATTGGAAAGTTAGGGGTGAAATCCCAGGGCTCAACCCTGGAACTGCCCTTAAAACTCCCAGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG"] +1
+
+x_5<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATTGGAAAGTTGGGGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTTCAAAACTCCCAGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG"] +1 
+y_5<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATTGGAAAGTTGGGGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTTCAAAACTCCCAGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG"] +1
+
+x_6<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGTCCAAGCGTTATCCGGATTTATTGGGTTTAAAGGGTCCGTAGGCGGGGTTTTAAGTCAGTGGTGAAAGCCTACAGCTCAACTGTAGAACTGCCATTGAAACTGGAACTCTTGAATGTGATTGAGGTAGGCGGAATATGTCATGTAGCGGTGAAATGCTTAGATATGACATAGAACACCGATAGCGAAGGCAGCTTACCAAGTCATTATTGACGCTGATGGACGAAAGCGTGGGGAGCGAACAGG"] +1 
+y_6<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGTCCAAGCGTTATCCGGATTTATTGGGTTTAAAGGGTCCGTAGGCGGGGTTTTAAGTCAGTGGTGAAAGCCTACAGCTCAACTGTAGAACTGCCATTGAAACTGGAACTCTTGAATGTGATTGAGGTAGGCGGAATATGTCATGTAGCGGTGAAATGCTTAGATATGACATAGAACACCGATAGCGAAGGCAGCTTACCAAGTCATTATTGACGCTGATGGACGAAAGCGTGGGGAGCGAACAGG"] +1
+
+x_7<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGTGCAAGCGTTACTCGGAATCACTGGGCGTAAAGAGCGTGTAGGCGGGTTAATAAGTCAGATGTGAAAGCCTATGGCTCAACCATAGAACTGCATTTGAAACTGTTAACCTAGAATATGGGAGAGGTAGATGGAATTTCTGGTGTAGGGGTAAAATCCGTAGAGATCAGAAGGAATACCGATTGCGAAGGCGATCTACTGGAACATTATTGACGCTGAGACGCGAAAGCGTGGGGAGCAAACAGG"] +1 
+y_7<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGTGCAAGCGTTACTCGGAATCACTGGGCGTAAAGAGCGTGTAGGCGGGTTAATAAGTCAGATGTGAAAGCCTATGGCTCAACCATAGAACTGCATTTGAAACTGTTAACCTAGAATATGGGAGAGGTAGATGGAATTTCTGGTGTAGGGGTAAAATCCGTAGAGATCAGAAGGAATACCGATTGCGAAGGCGATCTACTGGAACATTATTGACGCTGAGACGCGAAAGCGTGGGGAGCAAACAGG"] +1
+
+x_8<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATTGGAAAGTTGGGGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTCCAAAACTATCAGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG"] +1 
+y_8<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATTGGAAAGTTGGGGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTCCAAAACTATCAGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG"] +1
+
+x_9<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATTAGTAAGTTAGAGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTTTAATACTGCTAGTCTTGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG"] +1 
+y_9<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATTAGTAAGTTAGAGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTTTAATACTGCTAGTCTTGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG"] +1
+
+x_10<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGTGCAAGCGTTATCCGGAATCATTGGGTTTAAAGGGTCCGCAGGCGGTCAATTAAGTCAGAGGTGAAATCCTACAGCTTAACTGTAGAACTGCCTTTGATACTGGTTGACTTGAGTTATATGGAAGTAGGTAGAATGTGTAGTGTAGCGGTGAAATGCTTAGATATTACACAGAATACCGATTGCGAAGGCAGCCTACTACGTATATACTGACGCTCATGGACGAAAGCGTGGGGAGCGAACAGG"] +1 
+y_10<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGTGCAAGCGTTATCCGGAATCATTGGGTTTAAAGGGTCCGCAGGCGGTCAATTAAGTCAGAGGTGAAATCCTACAGCTTAACTGTAGAACTGCCTTTGATACTGGTTGACTTGAGTTATATGGAAGTAGGTAGAATGTGTAGTGTAGCGGTGAAATGCTTAGATATTACACAGAATACCGATTGCGAAGGCAGCCTACTACGTATATACTGACGCTCATGGACGAAAGCGTGGGGAGCGAACAGG"] +1
+
+x_11<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGAGCTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGGCTGTTAAGTCAGAGGTGAAATCCCGGGGCTCAACCCCGGAACGGCCTTTGATACTGGCAGTCTGGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGCGTGGGGAGCAAACAGG"] +1 
+y_11<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGAGCTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGGCTGTTAAGTCAGAGGTGAAATCCCGGGGCTCAACCCCGGAACGGCCTTTGATACTGGCAGTCTGGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGCGTGGGGAGCAAACAGG"] +1
+
+x_12<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGTGCGAGCGTTAATCGGAATCACTGGGCGTAAAGCGCATGCAGGCGGTTTGCTAAGCGAGATGTGAAAGCCCCGGGCTTAACCTGGGAACTGCATTTCGAACTGGCGAACTAGAGTCTTGTAGAGGGGGGTAGAATTTCAGGTGTAGCGGTGAAATGCGTAGAGATCTGAAGGAATACCAGTGGCGAAGGCGGCCCCCTGGACAAAGACTGACGCTCAGATGCGAAAGCGTGGGGAGCAAACAGG"] +1 
+y_12<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGTGCGAGCGTTAATCGGAATCACTGGGCGTAAAGCGCATGCAGGCGGTTTGCTAAGCGAGATGTGAAAGCCCCGGGCTTAACCTGGGAACTGCATTTCGAACTGGCGAACTAGAGTCTTGTAGAGGGGGGTAGAATTTCAGGTGTAGCGGTGAAATGCGTAGAGATCTGAAGGAATACCAGTGGCGAAGGCGGCCCCCTGGACAAAGACTGACGCTCAGATGCGAAAGCGTGGGGAGCAAACAGG"] +1
+
+x_13<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACATAGGCCCCAAGCGTTATCCGGATTTACTGGGCGTAAAGAGTGCGCAGGTGATTTCACAAGTCTGTATTGAAAGGCTGGAGCTCAACTCCAGTTTGGTATGGAAACTGTGTTATTAGATTATGATAGAGGTTAGCGGAATTCCTAATGTAGCGGTGGAATGCGTAGATATTAGGAGGAACACCAAAAGCGAAGGCAGCTAACTGGGTCATTAATGACACTGGTGCACGAAAGCGTGGGGAGCAAACAGG"] +1 
+y_13<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACATAGGCCCCAAGCGTTATCCGGATTTACTGGGCGTAAAGAGTGCGCAGGTGATTTCACAAGTCTGTATTGAAAGGCTGGAGCTCAACTCCAGTTTGGTATGGAAACTGTGTTATTAGATTATGATAGAGGTTAGCGGAATTCCTAATGTAGCGGTGGAATGCGTAGATATTAGGAGGAACACCAAAAGCGAAGGCAGCTAACTGGGTCATTAATGACACTGGTGCACGAAAGCGTGGGGAGCAAACAGG"] +1
+
+x_14<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGAAGGTCCCGAGCGTTATTCGGAATCACTGGGCGTAAAGGGAGCGTAGGCTGCGTGGTAAGTCAGATGTGAAATCTCAGGGCTCAACCCTGAAACTGCATCCGATACTGCCACGCTAGAGTAATGGAGGGGTAAGTGGAATTCTCAGTGTAGCAGTGAAATGCGTAGATATTGAGAGGAAGACCAACGGCGAAGGCAGCTTACTGGACATTTACTGACGCTGAGGCTCGAAGGCTAGGGTAGCGAAAGGG"] +1 
+y_14<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGAAGGTCCCGAGCGTTATTCGGAATCACTGGGCGTAAAGGGAGCGTAGGCTGCGTGGTAAGTCAGATGTGAAATCTCAGGGCTCAACCCTGAAACTGCATCCGATACTGCCACGCTAGAGTAATGGAGGGGTAAGTGGAATTCTCAGTGTAGCAGTGAAATGCGTAGATATTGAGAGGAAGACCAACGGCGAAGGCAGCTTACTGGACATTTACTGACGCTGAGGCTCGAAGGCTAGGGTAGCGAAAGGG"] +1
+
+x_15<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGTGCGAGCGTTAATCGGAATTACTGGGCGTAAAGCGCATGCAGGCGGTTACTCAAGTCAGATGTGAAATCCCCGAGCTTAACTCGGGAGGGTCATTTGAAACTGTGTAACTAGAGTCTTGTAGAGGGGGGTAGAATTTCAGGTGTAGCGGTGAAATGCGTAGAGATCTGAAGGAATACCGGTGGCGAAGGCGGCCCCCTGGACAAAGACTGACGCTCAGATGCGAAAGCGTGGGTAGCAAACGGG"] +1 
+y_15<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGTGCGAGCGTTAATCGGAATTACTGGGCGTAAAGCGCATGCAGGCGGTTACTCAAGTCAGATGTGAAATCCCCGAGCTTAACTCGGGAGGGTCATTTGAAACTGTGTAACTAGAGTCTTGTAGAGGGGGGTAGAATTTCAGGTGTAGCGGTGAAATGCGTAGAGATCTGAAGGAATACCGGTGGCGAAGGCGGCCCCCTGGACAAAGACTGACGCTCAGATGCGAAAGCGTGGGTAGCAAACGGG"] +1
+
+x_16<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGTGCAAGCGTTATCCGGAATCATTGGGTTTAAAGGGTCCGCAGGCGGTCAATTAAGTCAGAGGTGAAATCCCATAGCTTAACTATGGAACTGCCTTTGATACTGGTTGACTTGAGTTATACGGAAGTAGATAGAATAAGTAGTGTAGCGGTGAAATGCATAGATATTACTTAGAATACCGATTGCGAAGGCAGTCTACTACGTATATACTGACGCTCATGGACGAAAGCGTGGGGAGCGAACAGG"] +1 
+y_16<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGTGCAAGCGTTATCCGGAATCATTGGGTTTAAAGGGTCCGCAGGCGGTCAATTAAGTCAGAGGTGAAATCCCATAGCTTAACTATGGAACTGCCTTTGATACTGGTTGACTTGAGTTATACGGAAGTAGATAGAATAAGTAGTGTAGCGGTGAAATGCATAGATATTACTTAGAATACCGATTGCGAAGGCAGTCTACTACGTATATACTGACGCTCATGGACGAAAGCGTGGGGAGCGAACAGG"] +1
+
+x_17<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGTGCGAGCGTTAATCGGAATTACTGGGCGTAAAGCGCATGCAGGTGGTTCGTTAAGTCAGATGTGAAAGCCCGGGGCTCAACCTCGGAACTGCATTTGAAACTGGCGGACTAGAGTACTGTAGAGGGGGGTAGAATTTCAGGTGTAGCGGTGAAATGCGTAGAGATCTGAAGGAATACCGGTGGCGAAGGCGGCCCCCTGGACAGATACTGACACTCAGATGCGAAAGCGTGGGGAGCAAACAGG"] +1 
+y_17<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGTGCGAGCGTTAATCGGAATTACTGGGCGTAAAGCGCATGCAGGTGGTTCGTTAAGTCAGATGTGAAAGCCCGGGGCTCAACCTCGGAACTGCATTTGAAACTGGCGGACTAGAGTACTGTAGAGGGGGGTAGAATTTCAGGTGTAGCGGTGAAATGCGTAGAGATCTGAAGGAATACCGGTGGCGAAGGCGGCCCCCTGGACAGATACTGACACTCAGATGCGAAAGCGTGGGGAGCAAACAGG"] +1
+
+x_18<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGAAGGTCCCGAGCGTTATTCGGAATCACTGGGCGTAAAGGGAGCGTAGGCTGCGTGGTAAGTCAGATGTGAAAGCCCAGGGCTCAACCCTGGAACTGCATTCGATACTGCCATGCTAGAGTAATGGAGAGGTAGATGGAATTTTCGGTGTAGCAGTGAAATGCGTAGATATCGAAAGGAAGACCAATGGCGAAGGCAATCTACTGGACATTTACTGACGCTGAGGCTCGAAGGCTAGGGGAGCGAAAGGG"] +1 
+y_18<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGAAGGTCCCGAGCGTTATTCGGAATCACTGGGCGTAAAGGGAGCGTAGGCTGCGTGGTAAGTCAGATGTGAAAGCCCAGGGCTCAACCCTGGAACTGCATTCGATACTGCCATGCTAGAGTAATGGAGAGGTAGATGGAATTTTCGGTGTAGCAGTGAAATGCGTAGATATCGAAAGGAAGACCAATGGCGAAGGCAATCTACTGGACATTTACTGACGCTGAGGCTCGAAGGCTAGGGGAGCGAAAGGG"] +1
+
+x_19<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACTGGGGGAGCGAGCGTTGTTCGGAATCACTGGGCGTAAAGCGTGCGCAGGCGGTTTGGAAAGTCAGAAGTGAAATCCCAGAGCTCAACTCTGGAACTGCTTTTGAAACTTCCTTACTAGAGTTTGGTAGAGGTTGGGAGAATTCCTAGTGTAGAGGTGAAATTCGTAGATATTAGGAGGAATACCAGTGGCGTAGGCGCCCAACTGGACCATTACTGACGCTCAGGCACGAAAGCGTGGGGAGCAAACAGG"] +1 
+y_19<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACTGGGGGAGCGAGCGTTGTTCGGAATCACTGGGCGTAAAGCGTGCGCAGGCGGTTTGGAAAGTCAGAAGTGAAATCCCAGAGCTCAACTCTGGAACTGCTTTTGAAACTTCCTTACTAGAGTTTGGTAGAGGTTGGGAGAATTCCTAGTGTAGAGGTGAAATTCGTAGATATTAGGAGGAATACCAGTGGCGTAGGCGCCCAACTGGACCATTACTGACGCTCAGGCACGAAAGCGTGGGGAGCAAACAGG"] +1
+
+
+```
+```{r}
+pdf("CLAM_plot.pdf", width = 8.25, height = 6)
+plot(clam_results_ps, xlab = "DD (Abundance + 1)", ylab = "HH (Abundance + 1)", 
+     pch = c(1,16,16,1), col=colors, col.lines = c("black", "black", "black"), 
+     lty = c(2,2,2), cex=1.5, position = "topleft")
+legend("topleft",legend = labels, pch = c(1,16,16,1), col=colors)
+text(x=x_1, y=y_1, labels = "Ruegeria", pos=1)
+text(x=x_2, y=y_2, labels = "Pseudobacteriovorax", pos=2)
+text(x=x_3,y=y_3, labels = "Ruegeria", pos = 1)
+text(x=x_4,y=y_4, labels = "Rhodobacteraceae", pos = 4)
+text(x=x_5,y=y_5, labels = "Cribrihabitans", pos=2)
+text(x=x_6,y=y_6, labels = "Cryomorphaceae", pos=2)
+text(x=x_7,y=y_7, labels = "Halarcobacter", pos=2)
+text(x=x_8,y=y_8, labels = "Rhodobacteraceae", pos=3)
+text(x=x_9,y=y_9, labels = "Thalassobius", pos=2)
+text(x=x_10,y=y_10, labels = "Tenacibaculum", pos=2)
+text(x=x_11,y=y_11, labels = "Rhodobacteraceae", pos=2)
+text(x=x_12,y=y_12, labels = "Ferrimonas", pos=4)
+text(x=x_13,y=y_13, labels = "Mycoplasma", pos=2)
+text(x=x_14,y=y_14, labels = "Rubritalea", pos=2)
+text(x=x_15,y=y_15, labels = "Vibrionaceae", pos=2)
+text(x=x_16,y=y_16, labels = "Aurantivirga", pos=2)
+text(x=x_17,y=y_17, labels = "Vibrio", pos=2)
+text(x=x_18,y=y_18, labels = "Rubritalea", pos=2)
+text(x=x_19,y=y_19, labels = "Micavibrionaceae", pos=3)
+dev.off()
+```
+
+For the rest of the OATLD group, we need to get the relative abundance of each of the groups for each sample
+
+```{r}
+ps_f2_ra
+
+#Enterobacterales
+ps_enterobacterales <- subset_taxa(ps_f2_ra, Order == "Enterobacterales")
+View(ps_enterobacterales@otu_table)
+ps_enterobacterales_ras<- as.data.frame(ps_enterobacterales@otu_table)
+ps_enterobacterales_ras$RA_Total <- rowSums(ps_enterobacterales_ras)
+
+enterobacterales_ras <- data.frame(
+  RowNames = rownames(ps_enterobacterales_ras),
+  LastColumn = ps_enterobacterales_ras[, 42]
+)
+
+#Flavobacteriales
+ps_Flavobacteriales <- subset_taxa(ps_f2_ra, Order == "Flavobacteriales")
+View(ps_Flavobacteriales@otu_table)
+ps_Flavobacteriales_ras<- as.data.frame(ps_Flavobacteriales@otu_table)
+ps_Flavobacteriales_ras$RA_Total <- rowSums(ps_Flavobacteriales_ras)
+
+Flavobacteriales_ras <- data.frame(
+  RowNames = rownames(ps_Flavobacteriales_ras),
+  LastColumn = ps_Flavobacteriales_ras[, 137]
+)
+Flavobacteriales_ras$LastColumn <- format(Flavobacteriales_ras, scientific = FALSE)
+
+#Rhodobacterales
+ps_Rhodobacterales <- subset_taxa(ps_f2_ra, Order == "Rhodobacterales")
+View(ps_Rhodobacterales@otu_table)
+ps_Rhodobacterales_ras<- as.data.frame(ps_Rhodobacterales@otu_table)
+ps_Rhodobacterales_ras$RA_Total <- rowSums(ps_Rhodobacterales_ras)
+
+Rhodobacterales_ras <- data.frame(
+  RowNames = rownames(ps_Rhodobacterales_ras),
+  LastColumn = ps_Rhodobacterales_ras[, 76]
+)
+Rhodobacterales_ras$LastColumn <- format(Rhodobacterales_ras, scientific = FALSE)
+
+#Peptostreptococcales-Tessierellales
+ps_Peptostreptococcales_Tessierelales <- subset_taxa(ps_f2_ra, Order == "Peptostreptococcales-Tissierellales")
+View(ps_Peptostreptococcales_Tessierelales@otu_table)
+ps_Peptostreptococcales_Tessierelales_ras<- as.data.frame(ps_Peptostreptococcales_Tessierelales@otu_table)
+ps_Peptostreptococcales_Tessierelales_ras$RA_Total <- rowSums(ps_Peptostreptococcales_Tessierelales_ras)
+
+Peptostreptococcales_Tessierelales_ras <- data.frame(
+  RowNames = rownames(ps_Rhodobacterales_ras),
+  LastColumn = ps_Rhodobacterales_ras[, 27]
+)
+Peptostreptococcales_Tessierelales_ras$LastColumn <- format(Peptostreptococcales_Tessierelales_ras, scientific = FALSE)
+
+#Mycoplasmatales
+ps_Mycoplasmatales <- subset_taxa(ps_f2_ra, Order == "Mycoplasmatales")
+View(ps_Mycoplasmatales@otu_table)
+ps_Mycoplasmatales_ras<- as.data.frame(ps_Mycoplasmatales@otu_table)
+ps_Mycoplasmatales_ras$RA_Total <- rowSums(ps_Mycoplasmatales_ras)
+
+Mycoplasmatales_ras <- data.frame(
+  RowNames = rownames(ps_Mycoplasmatales_ras),
+  LastColumn = ps_Mycoplasmatales_ras[, 1]
+)
+Mycoplasmatales_ras$LastColumn <- format(Mycoplasmatales_ras, scientific = FALSE)
+
+ps_mycoplasmatales <- subset_taxa(ps_f2_ra, Order == "Mycoplasmatales")
+```
+
+
+#Make the Figures
+```{r}
+#Beta Dispersion
+p2<-ggplot(dis.condition, aes(x=factor(Condition), y=distance)) +
+  geom_boxplot(mapping =aes(x=Condition,y=distance, fill=Condition, color="black"), alpha = 0.6) +
+  geom_point(position=position_jitter(width=.1, height=0),aes(colour="black",fill=Condition),size=4, pch=21, colour = "black") +
+  scale_fill_manual(values = palette2) +
+  scale_color_manual(values = c( "black")) +
+  ylab("Distance to Centroid")+
+  xlab("Health Condition")+
+  guides(color="none") +
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(axis.text.x = element_text(colour="black"))+
+  theme(axis.text.y = element_text(colour="black"))+
+  theme(axis.text.x = element_text(size = 14))+
+  theme(axis.text.y = element_text(size = 12))+
+  theme(axis.title.x = element_text(size = 16))+
+  theme(axis.title.y = element_text(size = 16))+
+  theme(strip.text.x=element_text(size=16, face="bold"))+
+  theme(legend.position = "none") +
+  stat_compare_means(
+    comparisons = list(c("DD", "HH")),
+    method = "t.test",
+    label = "p.signif") +
+  scale_x_discrete(labels = c("DD" = "D", "HD" = "U", "HH" = "H")) 
+p2
+
+ggsave("beta_dispersion.png", plot = p2, width = 8, height = 6, dpi = 600)
+```
+
+```{r}
+#Remake Combined PLot of Relative Abundance
+library(cowplot)
+
+combined_plot<- plot_grid(dd_plot_8, dd_plot_9, dd_plot_14, dd_plot_15, dd_plot_19, ncol=5, nrow = 1, align="v") +
+  theme(plot.margin = margin(b = 30, l=30, unit = "pt"))
+
+combined_plot
+
+final_plot <- ggdraw(combined_plot) +
+  draw_label("Health Condition", x = 0.5, y=0.0, size = 14, vjust = -1) +
+  draw_label("Relative Abundance", x = 0, y = 0.5, angle = 90, size = 14, vjust = 1.5)
+
+final_plot
+
+pdf("combined_relative_abundance_plots_OATLD_unique_ASVs_updated.pdf", width=11, height=6)
+final_plot
+dev.off()
+```
+```{r}
+#Differential ABundance Figure
+ps_f2
+ps_f2_HH_DD<- subset_samples(ps_f2, Condition == "HH" | Condition == "DD")
+ps_f2_HH_DD
+
+ps_f2_HH_DD_pruned <- prune_taxa(taxa_sums(ps_f2_HH_DD) > 0, ps_f2_HH_DD)
+ps_f2_HH_DD_pruned
+
+# Define the order of the conditions for testing
+# In this order, the positive fold change values are increased in Diseased Tissue
+sample_data(ps_f2_HH_DD_pruned)$Condition<-factor(sample_data(ps_f2_HH_DD_pruned)$Condition,levels=c("HH","DD"))
+head(sample_data(ps_f2_HH_DD_pruned)$Condition, 10)
+
+# DESEQ2 analysis on Dcyl Samples
+dds = phyloseq_to_deseq2(ps_f2_HH_DD_pruned, ~ Condition)
+dds
+#filter rows with very few counts
+dds <- dds[ rowSums(counts(dds)) > 5, ]
+cts <- counts(dds)
+geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+dds <- DESeq(dds,test="Wald", fitType="parametric")
+res = results(dds, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ps)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+dim(sigtab)
+#save table of results
+sig = as(sigtab, "matrix")
+write.table(sig,"DESeq2_results.txt",sep="\t",col.names=NA)
+sig_dif_hh_dd<- read.table("DESeq2_results.txt", header = TRUE)
+colnames(sig_dif_hh_dd)[1]<- "ASV"
+
+#Count how many orders
+orders<-unique(sig_dif_hh_dd$Order)
+print(orders)
+
+cols <- c("Rhodobacterales"="#003049", "Oligoflexales"="#d62828", "Flavobacteriales" = "#f77f00", "Mycoplasmatales" = "#fcbf49", "Verrucomicrobiales" = "#eae2b7", "Enterobacterales" = "#c8553d", "Micavibrionales" = "#588b8b", "Campylobacterales" = "#bc6c25")
+
+
+#Create Figure for Significantly Different Taxa
+pdf("FigureDEtaxa.pdf",width=8,height=6)
+p1 <- ggplot(sig_dif_hh_dd,aes(log2FoldChange,Genus,fill=Order))+
+  geom_point(size=5, shape=21)+
+  geom_errorbarh(aes(xmin=log2FoldChange-lfcSE, xmax=log2FoldChange+lfcSE),height=0.2)+
+  scale_fill_manual(values=cols)+
+  theme(plot.title = element_text(face="italic"))+
+  labs(y= "Lowest Taxonomic Assignment")+
+  theme(axis.title=element_text(size=14))+
+  theme(legend.text=element_text(size=14))+
+  theme(legend.title=element_text(size=16))+
+  theme(axis.text=element_text(size=14, color="black"))+
+  theme(legend.position = "right")+
+  geom_vline(xintercept=0, linetype="dashed") +
+  theme(panel.grid = element_blank()) +
+  theme(panel.background = element_blank()) +
+  scale_x_continuous(limits = c(-5, 30)) +
+  scale_y_discrete(limits= c("Vibrionaceae", "Vibrio", "Thalassobius", "Tenacibaculum", "Ruegeria", "Rubritalea","Rhodobacteraceae", "Pseudobacteriovorax", "Mycoplasma","Micavibrionaceae", "Halarcobacter", "Ferrimonas", "Cryomorphaceae", "Cribrihabitans", "Aurantivirga"),
+                   labels= c("Vibrionaceae", expression(italic("Vibrio")), expression(italic("Thalassobius")), 
+                             expression(italic("Tenacibaculum")), 
+                             expression(italic("Ruegeria")), expression(italic("Rubritalea")), "Rhodobacteraceae",
+                             expression(italic("Pseudobacteriovorax")),
+                             expression(italic("Mycoplasma")),
+                             "Micavibrionaceae", expression(italic("Halarcobacter")), 
+                             expression(italic("Ferrimonas")), "Cryomorphaceae",
+                             expression(italic("Cribrihabitans")), 
+                            expression(italic("Aurantivirga"))))
+p1
+dev.off()
+```
+
