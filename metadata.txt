@@ -1,0 +1,80 @@
+Sample Name	Site	Condition
+FLP1	Carysfort South	HH
+FLP2	Carysfort South	HH
+FLP3	Carysfort South	HH
+FLP4	Carysfort South	HD
+FLP5	Carysfort South	DD
+FLP7	Carysfort South	HD
+FLP8	Carysfort South	DD
+FLP11	Carysfort South	HD
+FLP12	Carysfort South	DD
+FLP14	Carysfort South	DD
+FLP16	Carysfort South	HD
+FLP31	Carysfort South	HH
+FLP32	Carysfort South	HD
+FLP33	Carysfort South	DD
+FLP35	Carysfort South	HH
+FLP36	Carysfort South	HH
+FLP37	Carysfort South	HH
+FLP38	Carysfort South	HH
+FLP39	Carysfort South	HH
+FLP40	Carysfort South	HH
+FLP21	KLDR	HH
+FLP22	KLDR	HD
+FLP23	KLDR	DD
+FLP25	KLDR	HD
+FLP26	KLDR	DD
+FLP28	KLDR	DD
+FLP30	KLDR	DD
+FLP41	Grecian	HD
+FLP42	Grecian	DD
+FLP44	Grecian	HD
+FLP45	Grecian	DD
+FLP47	KLDR	HD
+FLP48	KLDR	DD
+FLP50	Grecian	HH
+FLP51	KLDR	HD
+FLP53	KLDR	HH
+FLP54	KLDR	HH
+FLP55	KLDR	HD
+FLP56	KLDR	DD
+FLP61	KLDR	HH
+FLP62	KLDR	HD
+FLP63	Grecian	HH
+FLP71	Grecian	HH
+FLP72	Grecian	HH
+FLP73	Grecian	HD
+FLP74	Grecian	DD
+FLP78	Grecian	HD
+FLP79	Grecian	DD
+FLP58	Looe Key	HH
+FLP59	Looe Key	HH
+FLP60	Looe Key	HH
+FLP65	Looe Key	HH
+FLP66	Looe Key	HD
+FLP67	Looe Key	DD
+FLP81	Looe Key	HD
+FLP82	Looe Key	DD
+FLP84	Looe Key	HH
+FLP85	Looe Key	HH
+FLP86	Looe Key	HD
+FLP87	Looe Key	DD
+FLP89	Looe Key	HD
+FLP90	Looe Key	DD
+FLP92	Looe Key	HH
+FLP93	Looe Key	HH
+FLP94	Looe Key	HH
+FLP95	Looe Key	HD
+FLP96	Looe Key	DD
+FLP99	Looe Key	HH
+FLP101	Looe Key	HD
+FLP102	Looe Key	DD
+FLP104	Looe Key	HD
+FLP105	Looe Key	DD
+FLP107	Looe Key	HD
+FLP110	Looe Key	HD
+FLP111	Looe Key	DD
+FLP113	Looe Key	HD
+FLP114	Looe Key	DD
+DEPBlank3-14-24	blank	blank
+DEPBlank3-6-24	blank	blank

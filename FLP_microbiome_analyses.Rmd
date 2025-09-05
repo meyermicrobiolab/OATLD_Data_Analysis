@@ -1,12 +1,12 @@
 ---
-title: "FLP Data Analysis"
+title: "OATLD Data Analysis"
 output: html_notebook
 ---
 
-The purpose of this project is to look at ASVs that are elevated in FLP-afflicted corals.
+The purpose of this project is to look at ASVs that are elevated in OATLD-afflicted corals.
 
 ```{r}
-#Load the libraries
+#Load the libraries - NEEDS TO BE CLEANED UP
 library(phyloseq)
 library(metagMisc)
 library(nationalparkcolors)
@@ -39,7 +39,7 @@ library(ggtree)
 library(purrr)
 library(digest)
 library(decontam)
-
+writeLines(capture.output(sessionInfo()), "sessionInfo.txt")
 ```
 
 ```{r}
@@ -2270,7 +2270,7 @@ ps_f2_order_HH_DD_pruned #139 Orders
 sample_data(ps_f2_order_HH_DD_pruned)$Condition<-factor(sample_data(ps_f2_order_HH_DD_pruned)$Condition,levels=c("HH","DD"))
 head(sample_data(ps_f2_order_HH_DD_pruned)$Condition, 10)
 
-# DESEQ2 analysis on Dcyl Samples
+# DESEQ2 analysis
 dds = phyloseq_to_deseq2(ps_f2_order_HH_DD_pruned, ~ Condition)
 dds
 #filter rows with very few counts
@@ -3896,11 +3896,11 @@ clam_ps_w_tax<- merge(clam_results_ps, tax_table, by = "Species")
 clam_ps_w_tax_gen<- clam_ps_w_tax[clam_ps_w_tax$Classes=="Generalist",]
 nrow(clam_ps_w_tax_gen)
 
-#Subset by Curacao Specialists
+#Subset by Healthy Specialists
 clam_ps_w_tax_hh<- clam_ps_w_tax[clam_ps_w_tax$Classes=="Specialist_HH",]
 nrow(clam_ps_w_tax_hh)
 
-#Subset by Belize Specialists
+#Subset by Disease Specialists
 clam_ps_w_tax_dd<- clam_ps_w_tax[clam_ps_w_tax$Classes=="Specialist_DD",]
 nrow(clam_ps_w_tax_dd)
 
@@ -3920,9 +3920,9 @@ colors <- c("Generalist" = "gray",
             "Specialist_DD" = "#d1495b", 
             "Too_Rare" = "black")
 
-labels<- c("Generalist", "Specialist HH", "Specialist DD", "Too Rare")
+labels<- c("Generalist", "Specialist Healthy", "Specialist Diseased", "Too Rare")
 
-sig_dif_hh_dd$ASV
+#sig_dif_hh_dd$ASV
 
 x_1<- clam_results_ps$Total_DD[clam_results_ps$Species=="TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCACGTAGGCGGACTGGAAAGTTGGGGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTCCAAAACTATCAGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG"] +1 
 y_1<- clam_results_ps$Total_HH[clam_results_ps$Species=="TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCACGTAGGCGGACTGGAAAGTTGGGGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTCCAAAACTATCAGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG"] +1
