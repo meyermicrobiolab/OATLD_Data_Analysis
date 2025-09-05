@@ -1,4 +1,4 @@
-Sample Name	Site	ConDiseasedition
+Sample Name	Site	Condition
 FLP1	Carysfort South	Healthy
 FLP2	Carysfort South	Healthy
 FLP3	Carysfort South	Healthy

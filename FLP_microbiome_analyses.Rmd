@@ -4074,11 +4074,11 @@ c("D" = "#d1495b", "U" = "#edae49", "H" = "#00798c")
 
 
 colors <- c("Generalist" = "gray",
-            "Specialist_H" = "#00798c", 
-            "Specialist_D" = "#d1495b", 
+            "Specialist_Healthy" = "#00798c", 
+            "Specialist_Diseased" = "#d1495b", 
             "Too_rare" = "black")
 
-labels<- c("Generalist", "Healthy Specialist", "Disease Specialist", "Too Rare")
+labels<- c("Generalist", "Specialist_Healthy", "Specialist_Diseased", "Too_rare")
 
 pdf("CLAM_plot_notaxonlabels.pdf", width = 8.25, height = 6)
 plot(clam_results_ps, xlab = "Diseased samples (ASV abundance + 1)", ylab = "Healthy samples (ASV abundance + 1)", 
