@@ -4044,7 +4044,7 @@ Repeat clamtest with altered condition names; Plot without taxon labels
 ```{r}
 otu <- read.table("silva_nochloronomito_otu_table_ps_f2.txt",sep="\t",header=TRUE, row.names=1)
 taxon <- read.table("silva_nochloronomito_taxa_table_ps_f2.txt",sep="\t",header=TRUE,row.names=1)
-samples<-read.table("metadata_noblanks_clamtest.txt",sep="\t",header=T,row.names=1)
+samples<-read.table("metadata_noblanks.txt",sep="\t",header=T,row.names=1)
 
 OTU = otu_table(otu, taxa_are_rows=FALSE)
 taxon<-as.matrix(taxon)

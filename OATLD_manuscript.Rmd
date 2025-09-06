@@ -22,8 +22,7 @@ writeLines(capture.output(sessionInfo()), "sessionInfo.txt")
 ```
 
 
-Beta diversity figures: PCA and dispersion
-
+Figure A - Beta diversity PCA and dispersion
 
 ```{r}
 otu <- read.table("silva_nochloronomito_otu_table_ps_f2.txt",sep="\t",header=TRUE, row.names=1)
@@ -55,41 +54,31 @@ pc2 <- round(d.pcx$sdev[2]^2/sum(d.pcx$sdev^2),2)
 df_out <- as.data.frame(d.pcx$x)
 dist.clr <- dist(E.clr)
 
-
 # Set asthetics for plot
-palette2<- c("Diseased" = "#E69F00", "Unaffected" = "#56B4E9", "Healthy" = "#0072B2")
+palette2<- c("Diseased" = "#d1495b", "Unaffected" = "#edae49", "Healthy" = "#00798c")
 theme_set(theme_bw()+theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank()))
-sample_data(ps_f2)$Condition<-factor(sample_data(ps_f2)$Condition,levels=c("Healthy", "Unaffected", "Diseased"))
 
-p1<-ggplot(df_out,aes(x=PC1,y=PC2,fill=sample_data(ps_f2)$Condition, shape=sample_data(ps_f2)$Site))
-p1<-p1+geom_point( size=3.5)+
+p<-ggplot(df_out,aes(x=PC1,y=PC2,fill=sample_data(ps_f2)$Condition, shape=sample_data(ps_f2)$Site))
+p<-p+geom_point( size=3.5)+
   theme(axis.title = element_text(size=14))+
   theme(axis.text=element_text(size=12))+
   theme(legend.title = element_text(size=14))+
   theme(legend.text = element_text(size=12))+
   theme(legend.position = "right")+
-  theme(legend.title = element_blank()) +
-  theme(legend.key.width = unit(1.0,  unit = "cm")) +
-  guides(fill = guide_legend(byrow = TRUE)) 
-p1<- p1+ labs(x=xlab, y=ylab, fill="Condition") + coord_fixed()+
+  coord_fixed()+
   labs(fill = "Condition", shape="Site")+
-  scale_shape_manual(values = c(21, 22, 23, 24, 25)) +
-  scale_fill_manual(values = palette2) +
-  theme_minimal() +
-   labs(x = "Principal Component 1: 30%", y = "Principal Component 2: 5%") +
+  scale_fill_manual(values = palette2, breaks = c("Healthy", "Unaffected", "Diseased"))+
+  scale_shape_manual(values = c(21, 22, 23, 24, 25))+
+  labs(x = "Principal Component 1: 30%", y = "Principal Component 2: 5%") +
   theme(axis.text.x=element_text(colour="black"))+
-  theme(axis.text.y=element_text(colour="black")) +
-  guides(fill = guide_legend(override.aes = list(shape = 21)))
-p1
+  theme(axis.text.y=element_text(colour="black"))+
+  guides(fill = guide_legend(order = 1,override.aes = list(shape = 21)), shape = guide_legend(order = 2))
+p
 
-pdf("PCA.pdf",bg ="white")
-p1
+pdf("PCA.pdf", ,bg ="white")
+p
 dev.off()
-```
 
-
-
-```{r}
 ### Beta Diversity Dispersion - Condition
 #calculate multivariate dispersions based on Condition
 mod <-betadisper(dist.clr, sampledata$Condition)
@@ -125,7 +114,7 @@ dunnTest(distance ~ Condition,
 )
 
 # Set asthetics for plot
-palette2<- c("Diseased" = "#E69F00", "Unaffected" = "#56B4E9", "Healthy" = "#0072B2")
+palette2<- c("Diseased" = "#d1495b", "Unaffected" = "#edae49", "Healthy" = "#00798c")
 dis.condition$Condition<-factor(dis.condition$Condition, levels=c("Healthy", "Unaffected", "Diseased"))
 theme_set(theme_bw()+theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank()))
 
@@ -136,11 +125,10 @@ p2<-ggplot(dis.condition, aes(x=Condition, y=distance)) +
   ylab("Distance to Centroid")+
   theme(axis.text.x = element_text(colour="black"))+
   theme(axis.text.y = element_text(colour="black"))+
-  theme(axis.text.x = element_text(size = 12))+
-  theme(axis.text.y = element_text(size = 12))+
+  theme(axis.text.x = element_text(size = 20))+
+  theme(axis.text.y = element_text(size = 20))+
   theme(axis.title.x = element_blank())+
-  theme(axis.title.y = element_text(size = 16))+
-  theme(strip.text.x=element_text(size=16, face="bold"))+
+  theme(axis.title.y = element_text(size = 22))+
   theme(legend.position = "none") +
   stat_compare_means(
     comparisons = list(c("Diseased", "Healthy")),
@@ -154,25 +142,13 @@ dev.off()
 ```
 
 
-```{r}
-# bring together PCA and Dispersion plots
-
-pdf("BetaDiversity.pdf",width=16, height=10, bg ="white")
-plot_grid(p1,p2,labels=c("A","B"))
-dev.off()
-
-
-
-```
-
-
-
+Figure B - CLAM test
 
 ```{r}
 # CLAM test
 otu <- read.table("silva_nochloronomito_otu_table_ps_f2.txt",sep="\t",header=TRUE, row.names=1)
 taxon <- read.table("silva_nochloronomito_taxa_table_ps_f2.txt",sep="\t",header=TRUE,row.names=1)
-samples<-read.table("metadata_noblanks.txt",sep="\t",header=T,row.names=1)
+samples<-read.table("metadata_noblanks_clamtest.txt",sep="\t",header=T,row.names=1)
 
 OTU = otu_table(otu, taxa_are_rows=FALSE)
 taxon<-as.matrix(taxon)
@@ -197,20 +173,27 @@ clam_results_ps <- vegan::clamtest(otu_table, env_var, alpha = 0.05, specializat
 print(clam_results_ps)
 summary(clam_results_ps)
 
+
+c("D" = "#d1495b", "U" = "#edae49", "H" = "#00798c")
+
+
 colors <- c("Generalist" = "gray",
-            "Specialist_Healthy" = "#0072B2", 
-            "Specialist_Diseased" = "#E69F00", 
+            "Specialist_Healthy" = "#00798c", 
+            "Specialist_Diseased" = "#d1495b", 
             "Too_rare" = "black")
 
 labels<- c("Generalist (n=298)", "Specialist_Healthy (n=548)", "Specialist_Diseased (n=160)", "Too_rare (n=154)")
 
-pdf("CLAM_plot.pdf", width = 8.25, height = 6,bg ="white")
+pdf("CLAM_plot_notaxonlabels.pdf", width = 8.25, height = 6,bg ="white")
 plot(clam_results_ps, xlab = "Diseased samples (ASV abundance + 1)", ylab = "Healthy samples (ASV abundance + 1)", 
      pch = c(1,16,16,1), col=colors, col.lines = c("black", "black", "black"), 
      lty = c(2,2,2), cex=1.5, position = "topleft")
 legend("topleft",legend = labels, pch = c(1,16,16,1), col=colors)
 dev.off()
 ```
+
+
+Figure C - 5 Differentially Abundant taxa unique to OATLD
 
 
 ```{r}
