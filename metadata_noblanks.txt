@@ -1,78 +1,78 @@
-Sample Name	Condition	Site
-FLP1	Healthy	Carysfort South
-FLP2	Healthy	Carysfort South
-FLP3	Healthy	Carysfort South
-FLP4	Unaffected	Carysfort South
-FLP5	Diseased	Carysfort South
-FLP7	Unaffected	Carysfort South
-FLP8	Diseased	Carysfort South
-FLP11	Unaffected	Carysfort South
-FLP12	Diseased	Carysfort South
-FLP14	Diseased	Carysfort South
-FLP16	Unaffected	Carysfort South
-FLP31	Healthy	Carysfort South
-FLP32	Unaffected	Carysfort South
-FLP33	Diseased	Carysfort South
-FLP35	Healthy	Carysfort South
-FLP36	Healthy	Carysfort South
-FLP37	Healthy	Carysfort South
-FLP38	Healthy	Carysfort Main
-FLP39	Healthy	Carysfort Main
-FLP40	Healthy	Carysfort Main
-FLP21	Healthy	Key Largo Dry Rocks
-FLP22	Unaffected	Key Largo Dry Rocks
-FLP23	Diseased	Key Largo Dry Rocks
-FLP25	Unaffected	Key Largo Dry Rocks
-FLP26	Diseased	Key Largo Dry Rocks
-FLP28	Diseased	Key Largo Dry Rocks
-FLP30	Diseased	Key Largo Dry Rocks
-FLP41	Unaffected	Grecian Rocks
-FLP42	Diseased	Grecian Rocks
-FLP44	Unaffected	Grecian Rocks
-FLP45	Diseased	Grecian Rocks
-FLP47	Unaffected	Key Largo Dry Rocks
-FLP48	Diseased	Key Largo Dry Rocks
-FLP50	Healthy	Grecian Rocks
-FLP51	Unaffected	Key Largo Dry Rocks
-FLP53	Healthy	Key Largo Dry Rocks
-FLP54	Healthy	Key Largo Dry Rocks
-FLP55	Unaffected	Key Largo Dry Rocks
-FLP56	Diseased	Key Largo Dry Rocks
-FLP61	Healthy	Key Largo Dry Rocks
-FLP62	Unaffected	Key Largo Dry Rocks
-FLP63	Healthy	Grecian Rocks
-FLP71	Healthy	Grecian Rocks
-FLP72	Healthy	Grecian Rocks
-FLP73	Unaffected	Grecian Rocks
-FLP74	Diseased	Grecian Rocks
-FLP78	Unaffected	Grecian Rocks
-FLP79	Diseased	Grecian Rocks
-FLP58	Healthy	Looe Key
-FLP59	Healthy	Looe Key
-FLP60	Healthy	Looe Key
-FLP65	Healthy	Looe Key
-FLP66	Unaffected	Looe Key
-FLP67	Diseased	Looe Key
-FLP81	Unaffected	Looe Key
-FLP82	Diseased	Looe Key
-FLP84	Healthy	Looe Key
-FLP85	Healthy	Looe Key
-FLP86	Unaffected	Looe Key
-FLP87	Diseased	Looe Key
-FLP89	Unaffected	Looe Key
-FLP90	Diseased	Looe Key
-FLP92	Healthy	Looe Key
-FLP93	Healthy	Looe Key
-FLP94	Healthy	Looe Key
-FLP95	Unaffected	Looe Key
-FLP96	Diseased	Looe Key
-FLP99	Healthy	Looe Key
-FLP101	Unaffected	Looe Key
-FLP102	Diseased	Looe Key
-FLP104	Unaffected	Looe Key
-FLP105	Diseased	Looe Key
-FLP107	Unaffected	Looe Key
-FLP110	Unaffected	Looe Key
-FLP111	Diseased	Looe Key
-FLP113	Unaffected	Looe Key
-FLP114	Diseased	Looe Key
+Sample Name	Condition	Site	Con
+FLP1	Healthy	Carysfort South	H
+FLP2	Healthy	Carysfort South	H
+FLP3	Healthy	Carysfort South	H
+FLP4	Unaffected	Carysfort South	U
+FLP5	Diseased	Carysfort South	D
+FLP7	Unaffected	Carysfort South	U
+FLP8	Diseased	Carysfort South	D
+FLP11	Unaffected	Carysfort South	U
+FLP12	Diseased	Carysfort South	D
+FLP14	Diseased	Carysfort South	D
+FLP16	Unaffected	Carysfort South	U
+FLP31	Healthy	Carysfort South	H
+FLP32	Unaffected	Carysfort South	U
+FLP33	Diseased	Carysfort South	D
+FLP35	Healthy	Carysfort South	H
+FLP36	Healthy	Carysfort South	H
+FLP37	Healthy	Carysfort South	H
+FLP38	Healthy	Carysfort Main	H
+FLP39	Healthy	Carysfort Main	H
+FLP40	Healthy	Carysfort Main	H
+FLP21	Healthy	Key Largo Dry Rocks	H
+FLP22	Unaffected	Key Largo Dry Rocks	U
+FLP23	Diseased	Key Largo Dry Rocks	D
+FLP25	Unaffected	Key Largo Dry Rocks	U
+FLP26	Diseased	Key Largo Dry Rocks	D
+FLP28	Diseased	Key Largo Dry Rocks	D
+FLP30	Diseased	Key Largo Dry Rocks	D
+FLP41	Unaffected	Grecian Rocks	U
+FLP42	Diseased	Grecian Rocks	D
+FLP44	Unaffected	Grecian Rocks	U
+FLP45	Diseased	Grecian Rocks	D
+FLP47	Unaffected	Key Largo Dry Rocks	U
+FLP48	Diseased	Key Largo Dry Rocks	D
+FLP50	Healthy	Grecian Rocks	H
+FLP51	Unaffected	Key Largo Dry Rocks	U
+FLP53	Healthy	Key Largo Dry Rocks	H
+FLP54	Healthy	Key Largo Dry Rocks	H
+FLP55	Unaffected	Key Largo Dry Rocks	U
+FLP56	Diseased	Key Largo Dry Rocks	D
+FLP61	Healthy	Key Largo Dry Rocks	H
+FLP62	Unaffected	Key Largo Dry Rocks	U
+FLP63	Healthy	Grecian Rocks	H
+FLP71	Healthy	Grecian Rocks	H
+FLP72	Healthy	Grecian Rocks	H
+FLP73	Unaffected	Grecian Rocks	U
+FLP74	Diseased	Grecian Rocks	D
+FLP78	Unaffected	Grecian Rocks	U
+FLP79	Diseased	Grecian Rocks	D
+FLP58	Healthy	Looe Key	H
+FLP59	Healthy	Looe Key	H
+FLP60	Healthy	Looe Key	H
+FLP65	Healthy	Looe Key	H
+FLP66	Unaffected	Looe Key	U
+FLP67	Diseased	Looe Key	D
+FLP81	Unaffected	Looe Key	U
+FLP82	Diseased	Looe Key	D
+FLP84	Healthy	Looe Key	H
+FLP85	Healthy	Looe Key	H
+FLP86	Unaffected	Looe Key	U
+FLP87	Diseased	Looe Key	D
+FLP89	Unaffected	Looe Key	U
+FLP90	Diseased	Looe Key	D
+FLP92	Healthy	Looe Key	H
+FLP93	Healthy	Looe Key	H
+FLP94	Healthy	Looe Key	H
+FLP95	Unaffected	Looe Key	U
+FLP96	Diseased	Looe Key	D
+FLP99	Healthy	Looe Key	H
+FLP101	Unaffected	Looe Key	U
+FLP102	Diseased	Looe Key	D
+FLP104	Unaffected	Looe Key	U
+FLP105	Diseased	Looe Key	D
+FLP107	Unaffected	Looe Key	U
+FLP110	Unaffected	Looe Key	U
+FLP111	Diseased	Looe Key	D
+FLP113	Unaffected	Looe Key	U
+FLP114	Diseased	Looe Key	D

@@ -148,7 +148,7 @@ Figure B - CLAM test
 # CLAM test
 otu <- read.table("silva_nochloronomito_otu_table_ps_f2.txt",sep="\t",header=TRUE, row.names=1)
 taxon <- read.table("silva_nochloronomito_taxa_table_ps_f2.txt",sep="\t",header=TRUE,row.names=1)
-samples<-read.table("metadata_noblanks_clamtest.txt",sep="\t",header=T,row.names=1)
+samples<-read.table("metadata_noblanks.txt",sep="\t",header=T,row.names=1)
 
 OTU = otu_table(otu, taxa_are_rows=FALSE)
 taxon<-as.matrix(taxon)
@@ -211,9 +211,58 @@ ps_f2 <- phyloseq(otu_table(otu, taxa_are_rows=FALSE),
 ps_f2 # 1202 taxa and 77 samples
 ps_f2_ra<- transform_sample_counts(ps_f2, function(OTU) OTU/sum(OTU))
 
-###Pull out 5 ASVs from Deseq results file
+otu_da = as(otu_table(ps_f2_ra), "matrix")
+taxon_da = as(tax_table(ps_f2_ra), "matrix")
+da<-t(otu_da)
+da <- as.data.frame(da)
+da <- tibble::rownames_to_column(da, "ASV")
+taxon_da <- as.data.frame(taxon_da)
+taxon_da <- tibble::rownames_to_column(taxon_da, "ASV")
+taxon_da$Species<-NULL
+da_tax <- merge(taxon_da, da, by="ASV", all=FALSE)
 
+###Pull out 5 ASVs common to DESeq2 and Indicator species analyses AND are not in SCLTD custom blast
 
+DA1 <- da_tax %>% filter(ASV == "TACGGAGGGGGTTAGCGTTGTTCGGAATTACTGGGCGTAAAGCGCGCGTAGGCGGATTGGAAAGTTGGGGGTGAAATCCCGGGGCTCAACCCCGGAACTGCCTTCAAAACTCCCAGTCTAGAGTTCGAGAGAGGTGAGTGGAATTCCGAGTGTAGAGGTGAAATTCGTAGATATTCGGAGGAACACCAGTGGCGAAGGCGGCTCACTGGCTCGATACTGACGCTGAGGTGCGAAAGTGTGGGGAGCAAACAGG") #Cribrihabitans ASV21
+DA2 <- da_tax %>% filter(ASV == "TACGGAGGGTGCGAGCGTTAATCGGAATCACTGGGCGTAAAGCGCATGCAGGCGGTTTGCTAAGCGAGATGTGAAAGCCCCGGGCTTAACCTGGGAACTGCATTTCGAACTGGCGAACTAGAGTCTTGTAGAGGGGGGTAGAATTTCAGGTGTAGCGGTGAAATGCGTAGAGATCTGAAGGAATACCAGTGGCGAAGGCGGCCCCCTGGACAAAGACTGACGCTCAGATGCGAAAGCGTGGGGAGCAAACAGG") #Ferrimonas ASV64
+DA3 <- da_tax %>% filter(ASV =="TACGGAGGGTGCAAGCGTTATCCGGAATCATTGGGTTTAAAGGGTCCGCAGGCGGTCAATTAAGTCAGAGGTGAAATCCCATAGCTTAACTATGGAACTGCCTTTGATACTGGTTGACTTGAGTTATACGGAAGTAGATAGAATAAGTAGTGTAGCGGTGAAATGCATAGATATTACTTAGAATACCGATTGCGAAGGCAGTCTACTACGTATATACTGACGCTCATGGACGAAAGCGTGGGGAGCGAACAGG") #Aurantivirga ASV123
+DA4 <- da_tax %>% filter(ASV == "TACATAGGCCCCAAGCGTTATCCGGATTTACTGGGCGTAAAGAGTGCGCAGGTGATTTCACAAGTCTGTATTGAAAGGCTGGAGCTCAACTCCAGTTTGGTATGGAAACTGTGTTATTAGATTATGATAGAGGTTAGCGGAATTCCTAATGTAGCGGTGGAATGCGTAGATATTAGGAGGAACACCAAAAGCGAAGGCAGCTAACTGGGTCATTAATGACACTGGTGCACGAAAGCGTGGGGAGCAAACAGG") #Mycoplasma ASV80
+DA5 <- da_tax %>% filter(ASV == "TACTGGGGGAGCGAGCGTTGTTCGGAATCACTGGGCGTAAAGCGTGCGCAGGCGGTTTGGAAAGTCAGAAGTGAAATCCCAGAGCTCAACTCTGGAACTGCTTTTGAAACTTCCTTACTAGAGTTTGGTAGAGGTTGGGAGAATTCCTAGTGTAGAGGTGAAATTCGTAGATATTAGGAGGAATACCAGTGGCGTAGGCGCCCAACTGGACCATTACTGACGCTCAGGCACGAAAGCGTGGGGAGCAAACAGG") #Micavibrionaceae AAV158
+DA_all <-rbind(DA1,DA2,DA3,DA4,DA5)
+
+# Merge with metadata for plotting aesthetics
+samples <- as.data.frame(samples)
+samples <- tibble::rownames_to_column(samples, "sample")
+DA_long<-melt(DA_all,value.name="proportion",variable.name="sample",id.vars=c("ASV","Kingdom","Phylum","Class","Order","Family","Genus"))
+
+DAplot <- merge(DA_long,samples,by="sample", all=TRUE)
+# reduce decimal places in proporation column
+DAplot$proportion<-round(DAplot$proportion,3)
+
+palette2<- c("Diseased" = "#d1495b", "Unaffected" = "#edae49", "Healthy" = "#00798c")
+DAplot$Condition<-factor(DAplot$Condition, levels=c("Healthy", "Unaffected", "Diseased"))
+DAplot$Con<-factor(DAplot$Con, levels=c("H", "U", "D"))
+DAplot$Genus<-factor(DAplot$Genus, levels=c("Cribrihabitans", "Ferrimonas", "Aurantivirga","Mycoplasma","Micavibrionaceae"))
+theme_set(theme_bw()+theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank()))
+
+p3<-ggplot(DAplot,aes(x=Con,y=proportion,fill=Condition))+
+  geom_boxplot()+
+  geom_point(position=position_jitter(width=.1, height=0),aes(fill=Condition),size=4,pch=21) +
+  facet_wrap(Genus~.,scales="free", nrow=1)+
+  theme(axis.text.x = element_text(colour="black"))+
+  theme(axis.text.y = element_text(colour="black"))+
+  theme(axis.text.x = element_text(size = 12))+
+  theme(axis.text.y = element_text(size = 12))+
+  theme(axis.title.y = element_text(size = 14))+
+  theme(strip.text.x = element_text(face="italic", size=12), strip.background=element_rect(fill="white"))+
+  theme(axis.title.x = element_blank())+
+  ylab("Relative Abundance")+
+  scale_fill_manual(values=palette2)
+p3
+
+pdf("OATLD_DE.pdf", width = 11, height = 4, bg ="white")
+p3
+dev.off()
 
 ```
 
