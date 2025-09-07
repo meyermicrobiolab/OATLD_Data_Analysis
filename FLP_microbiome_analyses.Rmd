@@ -704,14 +704,14 @@ We should test alpha diversity between the different groups.
 ```{r}
 #Alpha Diversity Analyses
 #Statistical Test
-data_adiv<- estimate_richness(ps_f2, measures  = c("Shannon", "InvSimpson", "Observed"))
+data_adiv<- estimate_richness(ps_f2, measures  = c("Shannon", "Chao1", "Observed"))
 shapiro.test(data_adiv$Shannon) #Not Normal
-shapiro.test(data_adiv$InvSimpson) #Not Normal
+shapiro.test(data_adiv$Chao1) #Not Normal
 shapiro.test(data_adiv$Observed) #Not Normal
 
 adiv_df<- as.data.frame(ps_f2@sam_data)
 adiv_df$Shannon<- data_adiv$Shannon 
-adiv_df$Simpson<- data_adiv$InvSimpson
+adiv_df$Simpson<- data_adiv$Chao1
 adiv_df$Observed<- data_adiv$Observed
 
 adiv_df<- as(sample_data(adiv_df), "matrix")

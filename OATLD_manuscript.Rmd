@@ -58,8 +58,8 @@ dist.clr <- dist(E.clr)
 palette2<- c("Diseased" = "#d1495b", "Unaffected" = "#edae49", "Healthy" = "#00798c")
 theme_set(theme_bw()+theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank()))
 
-p<-ggplot(df_out,aes(x=PC1,y=PC2,fill=sample_data(ps_f2)$Condition, shape=sample_data(ps_f2)$Site))
-p<-p+geom_point( size=3.5)+
+p1<-ggplot(df_out,aes(x=PC1,y=PC2,fill=sample_data(ps_f2)$Condition, shape=sample_data(ps_f2)$Site))
+p1<-p1+geom_point( size=3.5)+
   theme(axis.title = element_text(size=14))+
   theme(axis.text=element_text(size=12))+
   theme(legend.title = element_text(size=14))+
@@ -73,10 +73,10 @@ p<-p+geom_point( size=3.5)+
   theme(axis.text.x=element_text(colour="black"))+
   theme(axis.text.y=element_text(colour="black"))+
   guides(fill = guide_legend(order = 1,override.aes = list(shape = 21)), shape = guide_legend(order = 2))
-p
+p1
 
 pdf("PCA.pdf", ,bg ="white")
-p
+p1
 dev.off()
 
 ### Beta Diversity Dispersion - Condition
@@ -142,6 +142,40 @@ dev.off()
 ```
 
 
+Alpha diversity
+
+
+```{r}
+# Set asthetics for plot
+palette2<- c("Diseased" = "#d1495b", "Unaffected" = "#edae49", "Healthy" = "#00798c")
+sample_data(ps_f2)$Condition<-factor(sample_data(ps_f2)$Condition, levels=c("Healthy", "Unaffected", "Diseased"))
+sample_data(ps_f2)$Con<-factor(sample_data(ps_f2)$Con, levels=c("H", "U", "D"))
+theme_set(theme_bw()+theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank()))
+
+richness<- plot_richness(ps_f2, x="Con", measures=c("Observed","Chao1","Shannon"))
+richness$layers <- richness$layers[-1]
+p3<-richness + 
+  geom_boxplot( alpha = 0.6,aes(fill=Condition))+
+  geom_point(position=position_jitter(width=.1, height=0),aes(fill=Condition),size=4,pch=21)+
+  theme(axis.text.x = element_text(angle=0,hjust=0.5,size=14,colour="black"))+
+  theme(axis.text.y = element_text(size=14,colour="black"))+
+  theme(axis.title.x = element_blank())+
+  theme(axis.title.y = element_text(size = 16))+
+  theme(strip.text.x=element_text(size=16),strip.background=element_rect(fill="white"))+
+  theme(legend.title = element_text(size = 16))+
+  theme(legend.text = element_text(size = 14)) +
+  scale_fill_manual(values = palette2)
+p3
+
+pdf("AlphaDiversity.pdf",width=8.25, height=6)
+p3
+dev.off()
+
+```
+
+
+
+
 Figure B - CLAM test
 
 ```{r}
@@ -184,7 +218,7 @@ colors <- c("Generalist" = "gray",
 
 labels<- c("Generalist (n=298)", "Specialist_Healthy (n=548)", "Specialist_Diseased (n=160)", "Too_rare (n=154)")
 
-pdf("CLAM_plot_notaxonlabels.pdf", width = 8.25, height = 6,bg ="white")
+pdf("CLAM_plot.pdf", width = 8.25, height = 6,bg ="white")
 plot(clam_results_ps, xlab = "Diseased samples (ASV abundance + 1)", ylab = "Healthy samples (ASV abundance + 1)", 
      pch = c(1,16,16,1), col=colors, col.lines = c("black", "black", "black"), 
      lty = c(2,2,2), cex=1.5, position = "topleft")
@@ -245,8 +279,8 @@ DAplot$Con<-factor(DAplot$Con, levels=c("H", "U", "D"))
 DAplot$Genus<-factor(DAplot$Genus, levels=c("Cribrihabitans", "Ferrimonas", "Aurantivirga","Mycoplasma","Micavibrionaceae"))
 theme_set(theme_bw()+theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank()))
 
-p3<-ggplot(DAplot,aes(x=Con,y=proportion,fill=Condition))+
-  geom_boxplot()+
+p5<-ggplot(DAplot,aes(x=Con,y=proportion,fill=Condition))+
+  geom_boxplot(alpha = 0.6)+
   geom_point(position=position_jitter(width=.1, height=0),aes(fill=Condition),size=4,pch=21) +
   facet_wrap(Genus~.,scales="free", nrow=1)+
   theme(axis.text.x = element_text(colour="black"))+
@@ -258,10 +292,10 @@ p3<-ggplot(DAplot,aes(x=Con,y=proportion,fill=Condition))+
   theme(axis.title.x = element_blank())+
   ylab("Relative Abundance")+
   scale_fill_manual(values=palette2)
-p3
+p5
 
 pdf("OATLD_DE.pdf", width = 11, height = 4, bg ="white")
-p3
+p5
 dev.off()
 
 ```
