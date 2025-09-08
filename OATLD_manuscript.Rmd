@@ -143,7 +143,7 @@ dev.off()
 ```
 
 
-Alpha diversity
+SOM: Alpha diversity
 
 
 ```{r}
@@ -228,7 +228,87 @@ dev.off()
 ```
 
 
-Figure C - 5 Differentially Abundant taxa unique to OATLD
+Figure C: Differentially abundant taxa - Order level
+
+
+```{r}
+otu <- read.table("silva_nochloronomito_otu_table_ps_f2.txt",sep="\t",header=TRUE, row.names=1)
+taxon <- read.table("silva_nochloronomito_taxa_table_ps_f2.txt",sep="\t",header=TRUE,row.names=1)
+samples<-read.table("metadata_noblanks.txt",sep="\t",header=T,row.names=1)
+
+OTU = otu_table(otu, taxa_are_rows=FALSE)
+taxon<-as.matrix(taxon)
+TAX = tax_table(taxon)
+sampledata = sample_data(samples)
+ps_f2 <- phyloseq(otu_table(otu, taxa_are_rows=FALSE), 
+               sample_data(samples), 
+               tax_table(taxon))
+ps_f2 # 1202 taxa and 77 samples
+
+ps_HH_DD<- subset_samples(ps_f2, Con == "H" | Con == "D")
+ps_HH_DD #1202 taxa and 52 samples
+
+ps_HH_DD_pruned <- prune_taxa(taxa_sums(ps_HH_DD) > 0, ps_HH_DD)
+ps_HH_DD_pruned #1160 taxa and 52 samples
+
+# agglomorate by order
+ps_order<- tax_glom(ps_HH_DD_pruned, taxrank = "Order")
+ps_order #139 orders and 52 samples
+
+# Define the order of the conditions for testing
+# In this order, the positive fold change values are increased in Diseased Tissue
+sample_data(ps_order)$Con<-factor(sample_data(ps_order)$Con,levels=c("H","D"))
+
+# DESEQ2 analysis
+dds = phyloseq_to_deseq2(ps_order, ~ Con)
+dds
+#filter rows with very few counts
+dds <- dds[ rowSums(counts(dds)) > 5, ]
+cts <- counts(dds)
+geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+dds <- DESeq(dds,test="Wald", fitType="parametric")
+res = results(dds, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ps_order)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+dim(sigtab)
+#save table of results
+sig = as(sigtab, "matrix")
+write.table(sig,"DESeq2_results_Order.txt",sep="\t",col.names=NA)
+sig_dif<- read.table("DESeq2_results_Order.txt", header = TRUE)
+colnames(sig_dif)[1]<- "ASV"
+
+cols <- c("Proteobacteria"="#003049", "Bdellovibrionota"="#d62828", "Bacteroidota" = "#f77f00", "Firmicutes" = "#fcbf49", "Verrucomicrobiota" = "#eae2b7", "Patescibacteria" = "#0a9396")
+
+#Create Figure for Significantly Different Taxa
+pdf("FigureDEtaxa_Order.pdf",width=10,bg="white")
+p1 <- ggplot(sig_dif,aes(log2FoldChange,Order,fill=Phylum))+
+  geom_point(size=7, shape=21)+
+  geom_errorbarh(aes(xmin=log2FoldChange-lfcSE, xmax=log2FoldChange+lfcSE),height=0.2)+
+  scale_fill_manual(values=cols)+
+  scale_y_discrete(limits=c("Verrucomicrobiales","Rickettsiales","Rhodobacterales","Pseudomonadales","Peptostreptococcales-Tissierellales","Oligoflexales","Mycoplasmatales","Gracilibacteria","Bacteroidales"))+
+  labs(y= "Taxonomic Order")+
+  theme(axis.title=element_text(size=14))+
+  theme(legend.text=element_text(size=14))+
+  theme(legend.title=element_text(size=16))+
+  theme(axis.title.y = element_blank())+
+  theme(axis.text=element_text(size=14, color="black"))+
+  theme(legend.position = "bottom")+
+  geom_vline(xintercept=0, linetype="dashed") +
+  theme(panel.grid = element_blank()) +
+  theme(panel.background = element_blank())
+p1
+dev.off()
+
+
+```
+
+
+
+
+Figure D - 5 Differentially Abundant taxa unique to OATLD
 
 
 ```{r}
@@ -301,79 +381,4 @@ dev.off()
 
 ```
 
-DESeq2, Order level
-
-
-```{r}
-otu <- read.table("silva_nochloronomito_otu_table_ps_f2.txt",sep="\t",header=TRUE, row.names=1)
-taxon <- read.table("silva_nochloronomito_taxa_table_ps_f2.txt",sep="\t",header=TRUE,row.names=1)
-samples<-read.table("metadata_noblanks.txt",sep="\t",header=T,row.names=1)
-
-OTU = otu_table(otu, taxa_are_rows=FALSE)
-taxon<-as.matrix(taxon)
-TAX = tax_table(taxon)
-sampledata = sample_data(samples)
-ps_f2 <- phyloseq(otu_table(otu, taxa_are_rows=FALSE), 
-               sample_data(samples), 
-               tax_table(taxon))
-ps_f2 # 1202 taxa and 77 samples
-
-ps_HH_DD<- subset_samples(ps_f2, Con == "H" | Con == "D")
-ps_HH_DD #1202 taxa and 52 samples
-
-ps_HH_DD_pruned <- prune_taxa(taxa_sums(ps_HH_DD) > 0, ps_HH_DD)
-ps_HH_DD_pruned #1160 taxa and 52 samples
-
-# agglomorate by order
-ps_order<- tax_glom(ps_HH_DD_pruned, taxrank = "Order")
-ps_order #139 orders and 52 samples
-
-# Define the order of the conditions for testing
-# In this order, the positive fold change values are increased in Diseased Tissue
-sample_data(ps_order)$Con<-factor(sample_data(ps_order)$Con,levels=c("H","D"))
-
-# DESEQ2 analysis
-dds = phyloseq_to_deseq2(ps_order, ~ Con)
-dds
-#filter rows with very few counts
-dds <- dds[ rowSums(counts(dds)) > 5, ]
-cts <- counts(dds)
-geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
-dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
-dds <- DESeq(dds,test="Wald", fitType="parametric")
-res = results(dds, cooksCutoff = FALSE)
-alpha = 0.01
-sigtab = res[which(res$padj < alpha), ]
-sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ps_order)[rownames(sigtab), ], "matrix"))
-head(sigtab)
-dim(sigtab)
-#save table of results
-sig = as(sigtab, "matrix")
-write.table(sig,"DESeq2_results_Order.txt",sep="\t",col.names=NA)
-sig_dif<- read.table("DESeq2_results_Order.txt", header = TRUE)
-colnames(sig_dif)[1]<- "ASV"
-
-cols <- c("Proteobacteria"="#003049", "Bdellovibrionota"="#d62828", "Bacteroidota" = "#f77f00", "Firmicutes" = "#fcbf49", "Verrucomicrobiota" = "#eae2b7", "Patescibacteria" = "#0a9396")
-
-#Create Figure for Significantly Different Taxa
-pdf("FigureDEtaxa_Order.pdf",width=8,height=6)
-p1 <- ggplot(sig_dif,aes(log2FoldChange,Order,fill=Phylum))+
-  geom_point(size=7, shape=21)+
-  geom_errorbarh(aes(xmin=log2FoldChange-lfcSE, xmax=log2FoldChange+lfcSE),height=0.2)+
-  scale_fill_manual(values=cols)+
-  scale_y_discrete(limits=c("Verrucomicrobiales","Rickettsiales","Rhodobacterales","Pseudomonadales","Peptostreptococcales-Tissierellales","Oligoflexales","Mycoplasmatales","Gracilibacteria","Bacteroidales"))+
-  labs(y= "Taxonomic Order")+
-  theme(axis.title=element_text(size=14))+
-  theme(legend.text=element_text(size=14))+
-  theme(legend.title=element_text(size=16))+
-  theme(axis.text=element_text(size=14, color="black"))+
-  theme(legend.position = "bottom")+
-  geom_vline(xintercept=0, linetype="dashed") +
-  theme(panel.grid = element_blank()) +
-  theme(panel.background = element_blank())
-p1
-dev.off()
-
-
-```
 
