@@ -57,6 +57,7 @@ dist.clr <- dist(E.clr)
 
 # Set asthetics for plot
 palette2<- c("Diseased" = "#d1495b", "Unaffected" = "#edae49", "Healthy" = "#00798c")
+sample_data(ps_f2)$Site<-factor(sample_data(ps_f2)$Site, levels=c("Looe", "Grecian/KLDR", "Carysfort"))
 theme_set(theme_bw()+theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank()))
 
 p1<-ggplot(df_out,aes(x=PC1,y=PC2,fill=sample_data(ps_f2)$Condition, shape=sample_data(ps_f2)$Site))
@@ -69,7 +70,7 @@ p1<-p1+geom_point( size=3.5)+
   coord_fixed()+
   labs(fill = "Condition", shape="Site")+
   scale_fill_manual(values = palette2, breaks = c("Healthy", "Unaffected", "Diseased"))+
-  scale_shape_manual(values = c(21, 22, 23, 24, 25))+
+  scale_shape_manual(values = c(23, 24, 21))+
   labs(x = "Principal Component 1: 30%", y = "Principal Component 2: 5%") +
   theme(axis.text.x=element_text(colour="black"))+
   theme(axis.text.y=element_text(colour="black"))+
