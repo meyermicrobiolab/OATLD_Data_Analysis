@@ -1,0 +1,65 @@
+PERMANOVA outputs
+
+
+
+Permutation test for adonis under reduced model
+Terms added sequentially (first to last)
+Permutation: free
+Number of permutations: 999
+
+adonis2(formula = dist.clr ~ condition * site, data = as(sample_data(ps_f2), "data.frame"), by = "terms")
+               Df SumOfSqs      R2      F Pr(>F)  
+condition       2    13508 0.04408 1.6966  0.040 *
+site            2     8174 0.02667 1.0266  0.356  
+condition:site  4    14065 0.04590 0.8833  0.646  
+Residual       68   270706 0.88335                
+Total          76   306454 1.00000                
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+
+
+
+
+
+Permutation test for adonis under reduced model
+Blocks:  strata 
+Permutation: free
+Number of permutations: 999
+
+adonis2(formula = dist.clr ~ condition/site, data = as(sample_data(ps_f2), "data.frame"), strata = site)
+         Df SumOfSqs      R2      F Pr(>F)
+Model     8    35747 0.11665 1.1224  0.204
+Residual 68   270706 0.88335              
+Total    76   306454 1.00000    
+
+
+
+
+
+
+$parent_call
+[1] "dist.clr ~ Condition/Site , strata = Site , permutations 999"
+
+$Healthy_vs_Unaffected
+         Df SumOfSqs      R2      F Pr(>F)
+Model     5    19287 0.10517 1.1048  0.612
+Residual 47   164107 0.89483              
+Total    52   183394 1.00000              
+
+$Healthy_vs_Diseased
+         Df SumOfSqs      R2      F Pr(>F)  
+Model     5    28090 0.13367 1.4195  0.047 *
+Residual 46   182059 0.86633                
+Total    51   210149 1.00000                
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+$Unaffected_vs_Diseased
+         Df SumOfSqs      R2      F Pr(>F)
+Model     5    24917 0.11727 1.1425  0.443
+Residual 43   187557 0.88273              
+Total    48   212474 1.00000       
+
+
+
