@@ -1,10 +1,10 @@
-R version 4.4.2 (2024-10-31)
+R version 4.5.2 (2025-10-31)
 Platform: x86_64-apple-darwin20
 Running under: macOS Ventura 13.7.8
 
 Matrix products: default
 BLAS:   /System/Library/Frameworks/Accelerate.framework/Versions/A/Frameworks/vecLib.framework/Versions/A/libBLAS.dylib 
-LAPACK: /Library/Frameworks/R.framework/Versions/4.4-x86_64/Resources/lib/libRlapack.dylib;  LAPACK version 3.12.0
+LAPACK: /Library/Frameworks/R.framework/Versions/4.5-x86_64/Resources/lib/libRlapack.dylib;  LAPACK version 3.12.1
 
 locale:
 [1] en_US.UTF-8/en_US.UTF-8/en_US.UTF-8/C/en_US.UTF-8/en_US.UTF-8
@@ -13,50 +13,36 @@ time zone: America/New_York
 tzcode source: internal
 
 attached base packages:
-[1] stats4    stats     graphics  grDevices utils     datasets  methods   base     
+[1] stats     graphics  grDevices utils     datasets  methods   base     
 
 other attached packages:
- [1] DESeq2_1.44.0               SummarizedExperiment_1.34.0 Biobase_2.64.0             
- [4] MatrixGenerics_1.16.0       matrixStats_1.5.0           GenomicRanges_1.56.2       
- [7] GenomeInfoDb_1.40.1         IRanges_2.38.1              S4Vectors_0.42.1           
-[10] BiocGenerics_0.50.0         FSA_0.10.0                  ggpubr_0.6.1               
-[13] reshape2_1.4.4              lubridate_1.9.4             forcats_1.0.0              
-[16] stringr_1.5.1               dplyr_1.1.4                 purrr_1.1.0                
-[19] readr_2.1.5                 tidyr_1.3.1                 tibble_3.3.0               
-[22] tidyverse_2.0.0             vegan_2.7-1                 permute_0.9-8              
-[25] ggplot2_3.5.2               cowplot_1.2.0               CoDaSeq_0.99.7             
-[28] car_3.1-3                   carData_3.0-5               ALDEx2_1.36.0              
-[31] latticeExtra_0.6-30         lattice_0.22-7              zCompositions_1.5.0-5      
-[34] survival_3.8-3              truncnorm_1.0-9             MASS_7.3-65                
-[37] phyloseq_1.48.0            
+ [1] FSA_0.10.1            ggpubr_0.6.2          reshape2_1.4.5        lubridate_1.9.5       forcats_1.0.1         stringr_1.6.0        
+ [7] dplyr_1.1.4           purrr_1.2.1           readr_2.1.6           tidyr_1.3.2           tibble_3.3.1          tidyverse_2.0.0      
+[13] pairwiseAdonis_0.4.1  cluster_2.1.8.1       vegan_2.7-2           permute_0.9-8         ggplot2_4.0.1         cowplot_1.2.0        
+[19] CoDaSeq_0.99.7        car_3.1-3             carData_3.0-5         ALDEx2_1.42.0         latticeExtra_0.6-31   lattice_0.22-7       
+[25] zCompositions_1.5.0-5 survival_3.8-6        truncnorm_1.0-9       MASS_7.3-65           phyloseq_1.54.0      
 
 loaded via a namespace (and not attached):
- [1] deldir_2.0-4            gridExtra_2.3           rlang_1.1.6            
- [4] magrittr_2.0.3          gridBase_0.4-7          ade4_1.7-23            
- [7] compiler_4.4.2          mgcv_1.9-3              png_0.1-8              
-[10] vctrs_0.6.5             quadprog_1.5-8          pkgconfig_2.0.3        
-[13] crayon_1.5.3            fastmap_1.2.0           backports_1.5.0        
-[16] XVector_0.44.0          rmarkdown_2.29          tzdb_0.5.0             
-[19] UCSC.utils_1.0.0        xfun_0.53               Rfast_2.1.5.1          
-[22] zlibbioc_1.50.0         jsonlite_2.0.0          biomformat_1.32.0      
-[25] rhdf5filters_1.16.0     DelayedArray_0.30.1     Rhdf5lib_1.26.0        
-[28] BiocParallel_1.38.0     jpeg_0.1-11             broom_1.0.9            
-[31] parallel_4.4.2          cluster_2.1.8.1         R6_2.6.1               
-[34] stringi_1.8.7           RColorBrewer_1.1-3      Rcpp_1.1.0             
-[37] iterators_1.0.14        knitr_1.50              directlabels_2025.6.24 
-[40] timechange_0.3.0        Matrix_1.7-4            splines_4.4.2          
-[43] igraph_2.1.4            tidyselect_1.2.1        rstudioapi_0.17.1      
-[46] abind_1.4-8             yaml_2.3.10             viridis_0.6.5          
-[49] codetools_0.2-20        plyr_1.8.9              withr_3.0.2            
-[52] evaluate_1.0.5          RcppParallel_5.1.11-1   Biostrings_2.72.1      
-[55] pillar_1.11.0           foreach_1.5.2           generics_0.1.4         
-[58] hms_1.1.3               scales_1.4.0            glue_1.8.0             
-[61] tools_4.4.2             interp_1.1-6            data.table_1.17.8      
-[64] locfit_1.5-9.12         ggsignif_0.6.4          rhdf5_2.48.0           
-[67] grid_4.4.2              ape_5.8-1               colorspace_2.1-1       
-[70] nlme_3.1-168            GenomeInfoDbData_1.2.12 Formula_1.2-5          
-[73] cli_3.6.5               zigg_0.0.2              S4Arrays_1.4.1         
-[76] viridisLite_0.4.2       gtable_0.3.6            rstatix_0.7.2          
-[79] digest_0.6.37           SparseArray_1.4.8       farver_2.1.2           
-[82] htmltools_0.5.8.1       multtest_2.60.0         lifecycle_1.0.4        
-[85] httr_1.4.7             
+ [1] deldir_2.0-4                gridExtra_2.3               rlang_1.1.7                 magrittr_2.0.4             
+ [5] gridBase_0.4-7              ade4_1.7-23                 otel_0.2.0                  matrixStats_1.5.0          
+ [9] compiler_4.5.2              mgcv_1.9-4                  png_0.1-8                   vctrs_0.7.0                
+[13] quadprog_1.5-8              pkgconfig_2.0.3             crayon_1.5.3                fastmap_1.2.0              
+[17] backports_1.5.0             XVector_0.50.0              rmarkdown_2.30              tzdb_0.5.0                 
+[21] xfun_0.56                   Rfast_2.1.5.2               jsonlite_2.0.0              biomformat_1.38.0          
+[25] rhdf5filters_1.22.0         DelayedArray_0.36.0         Rhdf5lib_1.32.0             BiocParallel_1.44.0        
+[29] jpeg_0.1-11                 broom_1.0.11                parallel_4.5.2              R6_2.6.1                   
+[33] stringi_1.8.7               RColorBrewer_1.1-3          GenomicRanges_1.62.1        Rcpp_1.1.1                 
+[37] Seqinfo_1.0.0               SummarizedExperiment_1.40.0 iterators_1.0.14            knitr_1.51                 
+[41] directlabels_2025.6.24      IRanges_2.44.0              timechange_0.4.0            Matrix_1.7-4               
+[45] splines_4.5.2               igraph_2.2.1                tidyselect_1.2.1            rstudioapi_0.18.0          
+[49] abind_1.4-8                 yaml_2.3.12                 viridis_0.6.5               codetools_0.2-20           
+[53] plyr_1.8.9                  Biobase_2.70.0              withr_3.0.2                 S7_0.2.1                   
+[57] evaluate_1.0.5              RcppParallel_5.1.11-1       Biostrings_2.78.0           pillar_1.11.1              
+[61] MatrixGenerics_1.22.0       foreach_1.5.2               stats4_4.5.2                generics_0.1.4             
+[65] hms_1.1.4                   S4Vectors_0.48.0            scales_1.4.0                glue_1.8.0                 
+[69] tools_4.5.2                 interp_1.1-6                data.table_1.18.0           ggsignif_0.6.4             
+[73] rhdf5_2.54.1                grid_4.5.2                  ape_5.8-1                   nlme_3.1-168               
+[77] Formula_1.2-5               cli_3.6.5                   zigg_0.0.2                  S4Arrays_1.10.1            
+[81] viridisLite_0.4.2           gtable_0.3.6                rstatix_0.7.3               digest_0.6.39              
+[85] BiocGenerics_0.56.0         SparseArray_1.10.8          farver_2.1.2                htmltools_0.5.9            
+[89] multtest_2.66.0             lifecycle_1.0.5            

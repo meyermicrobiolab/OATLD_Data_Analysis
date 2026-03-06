@@ -15,11 +15,11 @@ library(zCompositions)
 library(cowplot)
 library(ggplot2)
 library(vegan)
+library(pairwiseAdonis)
 library(tidyverse)
 library(reshape2)
 library(ggpubr)
 library(FSA)
-library(DESeq2)
 writeLines(capture.output(sessionInfo()), "sessionInfo.txt")
 ```
 
@@ -54,7 +54,6 @@ d.pcx <- prcomp(E.clr)
 pc1 <- round(d.pcx$sdev[1]^2/sum(d.pcx$sdev^2),2)
 pc2 <- round(d.pcx$sdev[2]^2/sum(d.pcx$sdev^2),2)
 df_out <- as.data.frame(d.pcx$x)
-dist.clr <- dist(E.clr)
 
 # Set asthetics for plot
 palette2<- c("Diseased" = "#d1495b", "Unaffected" = "#edae49", "Healthy" = "#00798c")
@@ -81,6 +80,20 @@ p1
 pdf("PCA.pdf", ,bg ="white")
 p1
 dev.off()
+
+####### Use phyloseq/vegan to perform PERMANOVA
+# set metadata as factors
+condition<-as.character(samples$Condition)
+site<-as.character(samples$Site)
+# permanova between groups using Aitchison distance
+dist.clr <- dist(E.clr)
+perm<-adonis2(dist.clr~condition*site,as(sample_data(ps_f2),"data.frame"),by="terms")
+print(perm) # copy results to text file
+perm1<-adonis2(dist.clr~condition/site,as(sample_data(ps_f2),"data.frame"),strata=site)
+print(perm1) # copy results to text file
+perm2<-pairwise.adonis2(dist.clr~Condition/Site,as(sample_data(ps_f2),"data.frame"), strata='Site')
+print(perm2) # copy results to text file
+
 
 ### Beta Diversity Dispersion - Condition
 #calculate multivariate dispersions based on Condition
