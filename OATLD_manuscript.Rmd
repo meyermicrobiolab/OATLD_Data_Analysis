@@ -5,6 +5,7 @@ date: "2025-09-05"
 output: html_document
 ---
 
+This script was written to update colors/aesthetics for some plots in the manuscript, reusing the datatables generated in FLP_microbiome_analyses.Rmd
 
 ```{r}
 #Load the libraries
@@ -102,7 +103,7 @@ samples$Sample <- rownames(samples)
 #merge metadata and dispersion 
 dis.condition <- merge(samples, dis.melt)
 #rename column
-colnames(dis.condition)[4] <- "distance"
+colnames(dis.condition)[6] <- "distance"
 
 shapiro.test(dis.condition$distance) #Not normally distributed, use kruskal test
 distance.test<- kruskal.test(distance ~ Condition, data=dis.condition)
@@ -144,17 +145,32 @@ dev.off()
 ```
 
 
-SOM: Alpha diversity
+SOM: Alpha diversity --- read in ASV table that has not been filtered to remove low abundance taxa
 
 
 ```{r}
+otu <- read.table("silva_nochloronomito_otu_table.txt",sep="\t",header=TRUE, row.names=1)
+taxon <- read.table("silva_nochloronomito_taxa_table.txt",sep="\t",header=TRUE,row.names=1)
+samples<-read.table("metadata_noblanks.txt",sep="\t",header=T,row.names=1)
+
+OTU = otu_table(otu, taxa_are_rows=FALSE)
+taxon<-as.matrix(taxon)
+TAX = tax_table(taxon)
+sampledata = sample_data(samples)
+ps <- phyloseq(otu_table(otu, taxa_are_rows=FALSE), 
+               sample_data(samples), 
+               tax_table(taxon))
+ps
+# 5522 taxa and 77 samples
+
+
 # Set asthetics for plot
 palette2<- c("Diseased" = "#d1495b", "Unaffected" = "#edae49", "Healthy" = "#00798c")
-sample_data(ps_f2)$Condition<-factor(sample_data(ps_f2)$Condition, levels=c("Healthy", "Unaffected", "Diseased"))
-sample_data(ps_f2)$Con<-factor(sample_data(ps_f2)$Con, levels=c("H", "U", "D"))
+sample_data(ps)$Condition<-factor(sample_data(ps)$Condition, levels=c("Healthy", "Unaffected", "Diseased"))
+sample_data(ps)$Con<-factor(sample_data(ps)$Con, levels=c("H", "U", "D"))
 theme_set(theme_bw()+theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank()))
 
-richness<- plot_richness(ps_f2, x="Con", measures=c("Observed","Chao1","Shannon"))
+richness<- plot_richness(ps, x="Con", measures=c("Observed","Chao1","Shannon"))
 richness$layers <- richness$layers[-1]
 p3<-richness + 
   geom_boxplot( alpha = 0.6,aes(fill=Condition))+
@@ -169,7 +185,7 @@ p3<-richness +
   scale_fill_manual(values = palette2)
 p3
 
-pdf("AlphaDiversity.pdf",width=8.25, height=6)
+pdf("AlphaDiversity_unfiltered.pdf",width=8.25, height=6)
 p3
 dev.off()
 
